@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 500" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12">
+  <rect width="880" height="500" fill="#0d1117"/>
+  <text x="440" y="30" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">Linux 中断处理完整路径</text>
+
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#ff7b29"/>
+    </marker>
+    <marker id="ab" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/>
+    </marker>
+  </defs>
+
+  <!-- Hardware -->
+  <rect x="30" y="55" width="120" height="55" rx="6" fill="#1a2028" stroke="#f85149" stroke-width="2"/>
+  <text x="90" y="78" text-anchor="middle" fill="#f85149" font-weight="700">硬件设备</text>
+  <text x="90" y="95" text-anchor="middle" fill="#8b949e" font-size="10">NIC / Disk / Timer</text>
+
+  <line x1="150" y1="82" x2="190" y2="82" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+  <text x="168" y="76" text-anchor="middle" fill="#ff7b29" font-size="9">IRQ 信号</text>
+
+  <!-- APIC -->
+  <rect x="190" y="55" width="130" height="55" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="2"/>
+  <text x="255" y="78" text-anchor="middle" fill="#e3b341" font-weight="700">Local APIC</text>
+  <text x="255" y="95" text-anchor="middle" fill="#8b949e" font-size="10">中断优先级仲裁</text>
+
+  <line x1="320" y1="82" x2="360" y2="82" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+  <text x="340" y="76" text-anchor="middle" fill="#ff7b29" font-size="9">向量号</text>
+
+  <!-- IDT -->
+  <rect x="360" y="45" width="150" height="75" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+  <text x="435" y="68" text-anchor="middle" fill="#56d364" font-weight="700">IDT 查找</text>
+  <text x="435" y="85" text-anchor="middle" fill="#8b949e" font-size="10">256 个描述符</text>
+  <text x="435" y="100" text-anchor="middle" fill="#8b949e" font-size="10">IDTR → 向量 → 处理函数</text>
+
+  <line x1="510" y1="82" x2="550" y2="82" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- CPU state save -->
+  <rect x="550" y="45" width="160" height="75" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="2"/>
+  <text x="630" y="68" text-anchor="middle" fill="#58a6ff" font-weight="700">CPU 自动压栈</text>
+  <text x="630" y="85" text-anchor="middle" fill="#8b949e" font-size="10">SS/RSP/RFLAGS/CS/RIP</text>
+  <text x="630" y="100" text-anchor="middle" fill="#8b949e" font-size="10">切换到中断栈 (IST)</text>
+
+  <line x1="630" y1="120" x2="630" y2="155" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- Top half -->
+  <rect x="470" y="155" width="320" height="80" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="2"/>
+  <text x="630" y="178" text-anchor="middle" fill="#e3b341" font-weight="700" font-size="13">上半部 (Top Half) — 中断上下文</text>
+  <text x="630" y="195" text-anchor="middle" fill="#8b949e" font-size="10">· 关中断（或 IRQF_SHARED 保持开）执行</text>
+  <text x="630" y="210" text-anchor="middle" fill="#8b949e" font-size="10">· 只做最少工作：读状态寄存器、ACK 硬件、唤醒下半部</text>
+
+  <!-- arrows down to bottom halves -->
+  <line x1="530" y1="235" x2="530" y2="275" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="630" y1="235" x2="630" y2="275" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="730" y1="235" x2="730" y2="275" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- softirq -->
+  <rect x="410" y="275" width="150" height="70" rx="6" fill="#1a2028" stroke="#f85149" stroke-width="1.5"/>
+  <text x="485" y="298" text-anchor="middle" fill="#f85149" font-weight="700">softirq</text>
+  <text x="485" y="315" text-anchor="middle" fill="#8b949e" font-size="10">TIMER/NET_TX/NET_RX</text>
+  <text x="485" y="330" text-anchor="middle" fill="#8b949e" font-size="10">BLOCK/TASKLET/SCHED</text>
+
+  <!-- tasklet -->
+  <rect x="570" y="275" width="130" height="70" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="1.5"/>
+  <text x="635" y="298" text-anchor="middle" fill="#e3b341" font-weight="700">tasklet</text>
+  <text x="635" y="315" text-anchor="middle" fill="#8b949e" font-size="10">建立在 softirq 上</text>
+  <text x="635" y="330" text-anchor="middle" fill="#8b949e" font-size="10">不可并发，已弃用</text>
+
+  <!-- workqueue -->
+  <rect x="710" y="275" width="130" height="70" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+  <text x="775" y="298" text-anchor="middle" fill="#56d364" font-weight="700">workqueue</text>
+  <text x="775" y="315" text-anchor="middle" fill="#8b949e" font-size="10">内核线程执行</text>
+  <text x="775" y="330" text-anchor="middle" fill="#8b949e" font-size="10">可睡眠/schedule()</text>
+
+  <!-- threaded IRQ box -->
+  <rect x="30" y="155" width="200" height="80" rx="6" fill="#1a2028" stroke="#8957e5" stroke-width="2"/>
+  <text x="130" y="178" text-anchor="middle" fill="#8957e5" font-weight="700" font-size="12">线程化中断 (threaded)</text>
+  <text x="130" y="195" text-anchor="middle" fill="#8b949e" font-size="10">IRQF_ONESHOT 标志</text>
+  <text x="130" y="210" text-anchor="middle" fill="#8b949e" font-size="10">上半部极简，下半部在</text>
+  <text x="130" y="222" text-anchor="middle" fill="#8b949e" font-size="10">irq/N-xxx 内核线程</text>
+
+  <line x1="230" y1="195" x2="280" y2="195" stroke="#8957e5" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ab)"/>
+  <text x="258" y="212" text-anchor="middle" fill="#8957e5" font-size="9">推荐新驱动使用</text>
+
+  <!-- /proc/interrupts -->
+  <rect x="30" y="295" width="370" height="70" rx="6" fill="#1a2028" stroke="#30363d" stroke-width="1"/>
+  <text x="215" y="315" text-anchor="middle" fill="#8b949e" font-weight="600" font-size="11">观测工具</text>
+  <text x="215" y="332" text-anchor="middle" fill="#8b949e" font-size="10">cat /proc/interrupts    — 每核中断计数</text>
+  <text x="215" y="347" text-anchor="middle" fill="#8b949e" font-size="10">watch -n1 cat /proc/softirqs  — softirq 统计</text>
+
+  <!-- ksoftirqd -->
+  <rect x="30" y="385" width="820" height="70" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="440" y="408" text-anchor="middle" fill="#8b949e" font-weight="600" font-size="11">ksoftirqd/N — 每核 softirq 守护线程</text>
+  <text x="440" y="425" text-anchor="middle" fill="#8b949e" font-size="10">当 softirq 负载过重时由 ksoftirqd 接管执行，避免饿死普通进程</text>
+  <text x="440" y="440" text-anchor="middle" fill="#8b949e" font-size="10">优先级 nice=19，可通过 chrt 调整；NET_RX 最高频触发（万兆网卡下可达 10M/s）</text>
+
+  <!-- IPI note -->
+  <rect x="710" y="155" width="140" height="65" rx="6" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="780" y="175" text-anchor="middle" fill="#58a6ff" font-weight="600" font-size="11">IPI 核间中断</text>
+  <text x="780" y="192" text-anchor="middle" fill="#8b949e" font-size="9">TLB flush / reschedule</text>
+  <text x="780" y="207" text-anchor="middle" fill="#8b949e" font-size="9">call function / stop CPU</text>
+</svg>
