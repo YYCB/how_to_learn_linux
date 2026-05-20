@@ -1068,8 +1068,10 @@ cat /etc/kdump.conf
 systemctl enable kdump
 systemctl start kdump
 
-# 5. 测试触发崩溃（!!! 生产环境慎用 !!!）
-echo c > /proc/sysrq-trigger  # 强制崩溃
+# 5. 测试触发崩溃
+# ⚠️  危险操作：以下命令会**立即强制崩溃系统**，生产环境绝对禁用！
+# 仅在专用测试机/虚拟机中执行，确认已正确配置 kdump 后再操作
+echo c > /proc/sysrq-trigger  # 强制 kernel panic → 触发 kdump 捕获
 
 # 6. 分析 crash dump
 crash /usr/lib/debug/boot/vmlinux-6.1.0 \

@@ -258,6 +258,10 @@ th {
 
 tr:hover td { background: var(--accent-soft); }
 
+@media (prefers-reduced-motion: reduce) {
+    tr:hover td { background: transparent; }
+}
+
 /* ─── Callout boxes ─────────────────────────────────── */
 .callout {
     border-left: 4px solid var(--accent-2);

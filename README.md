@@ -23,33 +23,35 @@
 
 ## 📚 目录
 
+> 每章均提供两种格式：点击章节名在线阅读 **Markdown**（GitHub 直接渲染），或用本地浏览器打开 `index.html` 获得完整 SVG 图表体验。
+
 ### 入门 & 准备
-| # | 章节 | 核心内容 |
-|---|------|----------|
-| [00](./00-学习路线/index.html) | **学习路线** | 阶段规划、时间表、推荐资源 |
-| [01](./01-经典版本选择/index.html) | **经典版本选择** | 0.11 / 2.6.0 / 5.x / 6.x 对比 |
-| [02](./02-环境搭建/index.html) | **环境搭建** | QEMU + GDB + clangd + ftrace + perf |
+| # | 章节 | 核心内容 | SVG 图表 |
+|---|------|----------|---------|
+| [00](./00-学习路线/README.md) | **学习路线** | 阶段规划、时间表、书单、20道自测题 | 架构总览 |
+| [01](./01-经典版本选择/README.md) | **经典版本选择** | 0.11/1.0/2.4/2.6/3.10/4.19/5.15/6.1 全景对比 | 架构总览 |
+| [02](./02-环境搭建/README.md) | **环境搭建** | QEMU + GDB + clangd + ftrace + perf + kdump | — |
 
 ### 核心子系统
-| # | 章节 | 核心内容 |
-|---|------|----------|
-| [03](./03-进程管理/index.html) | **进程管理** | task_struct、fork/CoW、上下文切换、状态机 |
-| [04](./04-内存管理/index.html) | **内存管理** | 多级页表、Buddy、Slab、NUMA、OOM、THP |
-| [05](./05-文件系统/index.html) | **文件系统** | VFS 四对象、Page Cache、ext4、io_uring |
-| [06](./06-系统调用/index.html) | **系统调用** | entry_SYSCALL_64、vDSO、seccomp、自定义 syscall |
-| [07](./07-设备驱动/index.html) | **设备驱动** | 完整 char driver、设备树、中断上下半部 |
-| [08](./08-网络子系统/index.html) | **网络子系统** | sk_buff、TCP 状态机、netfilter、XDP |
-| [09](./09-同步机制/index.html) | **同步机制** | atomic/spinlock/mutex/RCU/percpu/futex/lockdep |
+| # | 章节 | 核心内容 | SVG 图表 |
+|---|------|----------|---------|
+| [03](./03-进程管理/README.md) | **进程管理** | task_struct、fork/CoW、上下文切换汇编、状态机 | 虚拟地址空间布局 |
+| [04](./04-内存管理/README.md) | **内存管理** | 多级页表、Buddy/Slab/SLUB、NUMA、kswapd、OOM、THP | x86_64 四级页表 |
+| [05](./05-文件系统/README.md) | **文件系统** | VFS 四对象、Page Cache 回写、ext4 journal、io_uring | VFS 对象模型 |
+| [06](./06-系统调用/README.md) | **系统调用** | entry_SYSCALL_64 汇编、vDSO、seccomp BPF、新增 syscall | syscall 路径图 |
+| [07](./07-设备驱动/README.md) | **设备驱动** | 完整字符驱动、kobject/sysfs、设备树、MSI/DMA | 设备模型层次 |
+| [08](./08-网络子系统/README.md) | **网络子系统** | sk_buff、收包路径、TCP 状态机、netfilter 5hook、XDP | TCP 握手图 |
+| [09](./09-同步机制/README.md) | **同步机制** | atomic/spinlock/mutex/seqlock/RCU/percpu/futex/lockdep | 同步机制全景 |
 
 ### 专家级深入
-| # | 章节 | 核心内容 |
-|---|------|----------|
-| [10](./10-CFS调度器/index.html) | **CFS 调度器** | vruntime、红黑树、调度类、EAS、cgroup 调度 |
-| [11](./11-容器与命名空间/index.html) | **容器与命名空间** | 8 种 NS、cgroups v2、OverlayFS、75 行 mini-docker |
-| [12](./12-eBPF与可观测性/index.html) | **eBPF 与可观测性** | Verifier/JIT/Maps、kprobe/XDP/tc、bpftrace、Cilium |
-| [13](./13-中断与异常/index.html) | **中断与异常** | IDT、APIC、softirq/workqueue/threaded IRQ、IPI |
-| [14](./14-启动流程深入/index.html) | **启动流程** | UEFI → GRUB → initramfs → start_kernel → systemd |
-| [15](./15-内核调试与性能/index.html) | **内核调试与性能** | ftrace/perf/KASAN/lockdep/bpftrace/kdump/livepatch |
+| # | 章节 | 核心内容 | SVG 图表 |
+|---|------|----------|---------|
+| [10](./10-CFS调度器/README.md) | **CFS 调度器** | vruntime 公式、红黑树、5调度类、EAS、cgroup 层次调度 | CFS 红黑树 |
+| [11](./11-容器与命名空间/README.md) | **容器与命名空间** | 8 种 NS、cgroups v2、OverlayFS、seccomp、mini-docker | 容器内部结构 |
+| [12](./12-eBPF与可观测性/README.md) | **eBPF 与可观测性** | Verifier/JIT/Maps、XDP、CO-RE、bpftrace、Cilium/Falco | eBPF 完整架构 |
+| [13](./13-中断与异常/README.md) | **中断与异常** | IDT/APIC/MSI、softirq/workqueue/threaded IRQ、IPI、hrtimer | 中断处理路径 |
+| [14](./14-启动流程深入/README.md) | **启动流程深入** | BIOS/UEFI、GRUB2、解压、head_64.S、start_kernel()、systemd | 启动全流程图 |
+| [15](./15-内核调试与性能/README.md) | **内核调试与性能** | ftrace/perf/FlameGraph/KASAN/lockdep/kdump+crash/livepatch | 调试工具全景 |
 
 ---
 

@@ -3,6 +3,8 @@
 > **学习目标**：掌握 Linux 内核调试与性能分析的完整工具链，从 printk 到 eBPF，
 > 从静态分析到运行时 crash dump，能够定位内核 bug、量化性能瓶颈并实施优化。
 
+![内核调试与性能分析工具全景](../assets/diagrams/debug-tools.svg)
+
 ---
 
 ## 目录
@@ -578,11 +580,11 @@ perf script > after.perf
 ### 配置与原理
 
 ```bash
-# 内核配置（GENERIC 与 HW_TAGS 互斥，二选一）
+# 内核配置（GENERIC 与 HW_TAGS 互斥，二选一，不可同时启用）
 CONFIG_KASAN=y
-CONFIG_KASAN_GENERIC=y        # 软件实现（所有架构）
-# 或（二选一，不可同时启用）
-CONFIG_KASAN_HW_TAGS=y        # 硬件实现（ARM MTE，低开销，需要 ARMv8.5+）
+CONFIG_KASAN_GENERIC=y        # (选项A) 软件实现（所有架构均可，推荐开发调试用）
+# 或（二选一）
+CONFIG_KASAN_HW_TAGS=y        # (选项B) 硬件实现（仅 ARM MTE/ARMv8.5+，约1.1-1.2x开销）
 
 # 开销：
 # - 内存：每8字节对应1字节 shadow（内存×2）

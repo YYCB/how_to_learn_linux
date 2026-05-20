@@ -130,7 +130,7 @@ cat trace_pipe
 <pre class="code-bash"><span class="cm"># 实时看哪些函数 CPU 占用最高 (top)</span>
 sudo perf top
 
-<span class="cm"># 录制 30 秒采样</span>
+<span class="cm"># 录制 30 秒采样 (99Hz: 质数避免与周期性事件同步)</span>
 sudo perf record -F <span class="num">99</span> -a -g -- sleep <span class="num">30</span>
 sudo perf report                   <span class="cm"># 交互式 TUI</span>
 

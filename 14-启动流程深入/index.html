@@ -129,6 +129,8 @@
 <h3>EFI Stub — 不需要 GRUB 也能启动</h3>
 <p>现代 Linux 内核内嵌 "EFI stub"，本身就是一个 EFI 应用，可被 UEFI 固件直接执行：</p>
 <pre class="code-bash"><span class="cm"># 把 vmlinuz 复制到 ESP，UEFI 启动菜单加一条即可，无需 GRUB</span>
+<span class="cm"># 前提：先确认 ESP 目录存在</span>
+mkdir -p /boot/efi/EFI/Linux/
 cp /boot/vmlinuz /boot/efi/EFI/Linux/
 efibootmgr -c -d /dev/nvme0n1 -p <span class="num">1</span> -L <span class="str">"Linux"</span> -l <span class="str">"/EFI/Linux/vmlinuz"</span> \\
     -u <span class="str">"root=/dev/nvme0n1p2 ro initrd=\\EFI\\Linux\\initrd"</span>
