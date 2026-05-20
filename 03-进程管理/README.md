@@ -8,6 +8,8 @@
 
 ## 1. 进程的本质：task_struct
 
+![进程虚拟地址空间](../assets/diagrams/vm-layout.svg)
+
 一个进程在内核中就是一个 `task_struct` 结构体。
 
 ### Linux 0.11 的 task_struct
@@ -434,4 +436,209 @@ void __switch_to(struct task_struct *prev, struct task_struct *next)
 > printf "switching from pid=%d to pid=%d\n", prev->pid, next->pid
 > continue
 > end
+```
+
+---
+
+## 8. thread_info 与内核栈深度解析
+
+### 8.1 thread_info 的关键字段
+
+`thread_info` 存放于内核栈底部，包含几个对调度和安全至关重要的字段：
+
+```c
+/* include/asm-i386/thread_info.h — Linux 2.6.0 */
+struct thread_info {
+    struct task_struct  *task;       /* 指向 task_struct */
+    struct exec_domain  *exec_domain;
+    unsigned long        flags;      /* 低级标志位（TIF_NEED_RESCHED 等）*/
+    unsigned long        status;     /* 线程同步标志 */
+    __u32                cpu;        /* 当前所在 CPU */
+    int                  preempt_count; /* 抢占计数器 */
+    mm_segment_t         addr_limit;    /* 地址空间限制（用户/内核）*/
+    struct restart_block restart_block; /* 信号打断后重启 */
+};
+
+/* 关键标志位（flags 字段）*/
+#define TIF_SIGPENDING     0   /* 有待处理信号 */
+#define TIF_NEED_RESCHED   1   /* 需要重新调度（设此位→下次调度点切换）*/
+#define TIF_SINGLESTEP     2   /* 单步调试中 */
+#define TIF_IRET           3   /* 强制 iret 而非 sysexit 返回 */
+#define TIF_SYSCALL_AUDIT  4   /* 系统调用审计中 */
+#define TIF_POLLING_NRFLAG 5   /* 轮询 TIF_NEED_RESCHED（减少 IPI）*/
+
+/* preempt_count 编码：
+   bits 0..7:  抢占计数（非0 = 不可抢占）
+   bits 8..15: softirq 嵌套深度
+   bits 16..27: hardirq 嵌套深度
+   bit 28:     NMI 中 */
+#define in_interrupt()    (preempt_count() & (HARDIRQ_MASK | SOFTIRQ_MASK))
+#define in_atomic()       (preempt_count() != 0)
+```
+
+### 8.2 内核栈布局（ASCII 图）
+
+```
+一个进程的内核栈（THREAD_SIZE = 8KB on x86，16KB on x86_64）：
+
+高地址 (栈顶)
+┌──────────────────────────────────┐ ← esp0 = task->thread.esp0 (TSS 中)
+│                                  │
+│  pt_regs（系统调用/中断陷入时）  │  ← sizeof(pt_regs) = 15 × 4 = 60 bytes
+│  (用户态寄存器快照)               │
+│  ss / esp / eflags               │  ← CPU 自动压入
+│  cs / eip                        │  ← CPU 自动压入
+│  orig_eax / ds / es              │  ← SAVE_ALL 压入
+│  eax / ebp / edi / esi / ...     │  ← SAVE_ALL 压入
+├──────────────────────────────────┤ ← 系统调用入口后的 esp
+│                                  │
+│  内核函数调用栈（向下增长）       │
+│  ...                             │
+│  local variables                 │
+│  saved ebp                       │
+│  return address                  │
+│  ...                             │
+│                                  │
+│  (未使用区域)                     │
+│                                  │
+├──────────────────────────────────┤
+│  thread_info                     │  ← 栈底：通过 esp & ~(THREAD_SIZE-1) 定位
+│  .task ──────────────────────────┼──► task_struct（可能在其他页）
+│  .flags                          │
+│  .preempt_count                  │
+│  .addr_limit                     │
+└──────────────────────────────────┘ ← 低地址（栈溢出警戒区）
+```
+
+**栈溢出检测**：内核在栈底放置 `STACK_END_MAGIC = 0x57AC6E9D`，
+`schedule()` 中检查该值是否被覆盖（`CONFIG_DEBUG_STACKOVERFLOW`）。
+
+### 8.3 do_fork() → copy_process() → wake_up_new_task()（5.x 路径）
+
+现代内核（5.x）的进程创建路径较 2.6 更完善：
+
+```
+用户调用 fork() / clone3()
+      │
+      ▼ kernel/fork.c
+kernel_clone(struct kernel_clone_args *args)     ← 5.x 统一入口
+      │
+      ├─ copy_process(NULL, 0, NUMA_NO_NODE, args)
+      │     │
+      │     ├─ dup_task_struct(current, node)
+      │     │     ├─ alloc_task_struct_node()    ← slab 分配
+      │     │     ├─ alloc_thread_stack_node()   ← 分配内核栈
+      │     │     └─ arch_dup_task_struct()      ← 拷贝 FPU 状态
+      │     │
+      │     ├─ cgroup_fork()                     ← cgroup 继承
+      │     ├─ copy_mm()                         ← 地址空间（写时复制）
+      │     ├─ copy_files()
+      │     ├─ copy_fs()
+      │     ├─ copy_sighand()
+      │     ├─ copy_signal()
+      │     ├─ copy_thread()                     ← 架构相关寄存器
+      │     │     └─ 设置子进程返回值 = 0（pt_regs->ax = 0）
+      │     ├─ alloc_pid(task->nsproxy->pid_ns_for_children)
+      │     ├─ perf_event_fork()                 ← perf 继承
+      │     └─ 返回新的 task_struct *p
+      │
+      ├─ wake_up_new_task(p)
+      │     ├─ p->state = TASK_RUNNING
+      │     ├─ __set_task_cpu(p, select_task_rq(p, ...))  ← 选择 CPU
+      │     └─ activate_task() → enqueue_task()  ← 加入运行队列
+      │
+      └─ 返回新进程 PID 给父进程
+```
+
+### 8.4 __switch_to_asm：x86_64 寄存器保存/恢复
+
+```asm
+/* arch/x86/entry/entry_64.S — Linux 5.x */
+SYM_FUNC_START(__switch_to_asm)
+    /*
+     * 保存被调用者保存寄存器（callee-saved）
+     * 调用者保存寄存器（caller-saved）由编译器在调用前保存
+     */
+    pushq   %rbp
+    pushq   %rbx
+    pushq   %r12
+    pushq   %r13
+    pushq   %r14
+    pushq   %r15
+
+    /* 保存当前进程的内核栈指针 */
+    movq    %rsp, TASK_threadsp(%rdi)    /* prev->thread.sp = rsp */
+
+    /* 切换到新进程的内核栈 */
+    movq    TASK_threadsp(%rsi), %rsp    /* rsp = next->thread.sp */
+
+    /* 恢复新进程的被调用者保存寄存器 */
+    popq    %r15
+    popq    %r14
+    popq    %r13
+    popq    %r12
+    popq    %rbx
+    popq    %rbp
+
+    /*
+     * 跳转到 __switch_to（C 函数）完成：
+     * - FPU/SSE 状态延迟切换
+     * - TLS（FS/GS 段）切换
+     * - 调试寄存器切换
+     * - CR4 特性位切换（PKRU）
+     */
+    jmp     __switch_to
+SYM_FUNC_END(__switch_to_asm)
+
+/* 新进程第一次被调度时，从 ret_from_fork 开始执行 */
+SYM_CODE_START(ret_from_fork)
+    UNWIND_HINT_EMPTY
+    movq    %rax, %rdi          /* prev 任务 */
+    call    schedule_tail       /* 完成调度尾工作（释放 prev 的 rq 锁）*/
+
+    testq   $0x1, PTREGS_FLAGS(%rsp)   /* 判断是内核线程还是用户进程 */
+    jnz     1f
+    movq    PTREGS_RBP(%rsp), %rbx
+    call    *%rbx               /* 内核线程：调用注册的回调函数 */
+    ...
+1:
+    jmp     ret_from_sys_call   /* 用户进程：返回用户态 */
+SYM_CODE_END(ret_from_fork)
+```
+
+### 8.5 僵尸进程与孤儿进程
+
+```
+僵尸进程（Zombie）生命周期：
+
+  进程调用 exit()
+       │
+       ▼
+  do_exit() in kernel/exit.c
+       ├─ 释放大部分资源（内存、文件描述符、信号处理等）
+       ├─ 设置 exit_code（退出状态）
+       ├─ task->exit_state = EXIT_ZOMBIE
+       └─ do_notify_parent()   ← 向父进程发 SIGCHLD
+
+  task_struct 保留（僵尸状态），等待父进程收集退出状态
+       │
+       ▼
+  父进程调用 wait4(pid, &status, ...)
+       ├─ 在 children 链表中找到 EXIT_ZOMBIE 的子进程
+       ├─ 从 task_struct 取出 exit_code
+       ├─ release_task() → 释放 task_struct，从 task 列表移除
+       └─ 返回子进程 PID 和退出状态
+
+  如果父进程未调用 wait() 而先退出 → 子进程成为"孤儿":
+       ├─ kernel/exit.c: forget_original_parent()
+       ├─ 寻找收养者（同进程组的其他进程，或 subreaper）
+       └─ 最终由 PID 1 (init/systemd) 收养
+          init 会调用 waitid(P_ALL, ...) 自动收割僵尸子进程
+
+wait4() 与 waitpid() 的内核路径：
+  sys_wait4() → do_wait()
+    → 遍历 current->children 链表
+    → 对 EXIT_ZOMBIE 子进程：收集状态 → release_task()
+    → 若无符合条件子进程：将父进程加入 wait_queue，休眠
+    → 子进程退出时 do_notify_parent() 唤醒父进程
 ```

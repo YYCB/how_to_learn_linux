@@ -22,6 +22,8 @@
 
 ---
 
+![系统调用完整路径](../assets/diagrams/syscall-flow.svg)
+
 ## 2. Linux 0.11：int 0x80 中断方式
 
 ### 2.1 整体流程
@@ -358,3 +360,228 @@ ausyscall --dump       # 打印所有系统调用号
 | open    | ~3 µs（含路径解析）|
 | fork    | ~30 µs（进程创建）|
 | execve  | ~1 ms（加载程序）|
+
+---
+
+## 8. vDSO（虚拟动态共享对象）
+
+### 8.1 vDSO 原理
+
+```
+问题：某些系统调用极高频率被调用（如 gettimeofday 每毫秒调用多次）
+     每次都要 ring3 → ring0 → ring3 切换，约 100~200 ns 的开销
+
+解决：vDSO（Virtual Dynamic Shared Object）
+  内核在每个进程的地址空间映射一段特殊共享内存（约 8KB），
+  包含部分系统调用的用户态实现（直接读 VVAR 页中的内核数据）
+
+                 用户地址空间
+  ┌──────────────────────────────────┐
+  │  ...                             │
+  │  [vvar] (只读，内核写入时间数据) │ ← 内核定期更新
+  │  [vdso] (可执行，用户态代码)     │ ← gettimeofday 实现
+  │  ...                             │
+  └──────────────────────────────────┘
+
+glibc 的 gettimeofday() 会自动调用 vDSO 版本：
+  → 直接读取 vvar 页中的 tk_core（时间核心数据）
+  → 无需进入内核！耗时约 10~20 ns
+```
+
+### 8.2 vDSO 加速的系统调用
+
+```bash
+# 查看 vDSO 加速的函数
+cat /proc/self/maps | grep vdso
+# 7fff12345000-7fff12346000 r-xp 00000000 00:00 0  [vdso]
+
+# 解析 vDSO 导出符号
+objdump -T /proc/self/exe 2>/dev/null || \
+    dd if=/proc/self/mem bs=4096 skip=$((0x7fff12345)) count=1 2>/dev/null | \
+    objdump -T /dev/stdin 2>/dev/null
+
+# 在现代 x86_64 系统，vDSO 通常加速以下调用：
+#  clock_gettime(CLOCK_REALTIME / CLOCK_MONOTONIC)
+#  gettimeofday()
+#  getcpu()         (返回当前 CPU 和 NUMA 节点号)
+#  time()
+```
+
+```c
+/* 用户程序通常无需关心 vDSO，glibc 自动使用 */
+/* 但可以验证：使用 strace 观察是否有系统调用被发出 */
+/* strace -e gettimeofday ./my_program */
+/* 如果使用了 vDSO，strace 看不到该系统调用！ */
+
+/* 手动查找和调用 vDSO（不推荐，仅用于了解机制）*/
+#include <sys/auxv.h>
+unsigned long vdso_addr = getauxval(AT_SYSINFO_EHDR);
+/* 然后解析 ELF，找到函数符号 */
+```
+
+---
+
+## 9. seccomp BPF：系统调用过滤
+
+### 9.1 seccomp 机制
+
+```
+seccomp（SECure COMPuting mode）允许进程为自己设置系统调用白名单/黑名单，
+用于沙箱化（Chrome、Docker、systemd 等均使用）。
+
+模式：
+  SECCOMP_MODE_STRICT   仅允许 read/write/exit/sigreturn（极简模式）
+  SECCOMP_MODE_FILTER   BPF 程序决定每个系统调用的处理方式（灵活）
+```
+
+### 9.2 seccomp BPF 示例
+
+```c
+#include <linux/seccomp.h>
+#include <linux/filter.h>
+#include <linux/audit.h>
+#include <sys/syscall.h>
+#include <sys/prctl.h>
+
+/* 简单的 seccomp 过滤器：只允许 read/write/exit_group */
+struct sock_filter filter[] = {
+    /* 加载系统调用号到累加器 */
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+             offsetof(struct seccomp_data, nr)),
+
+    /* 允许 read */
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_read, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
+    /* 允许 write */
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_write, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
+    /* 允许 exit_group */
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_exit_group, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
+    /* 其他所有系统调用：返回 ERRNO(EPERM) 或 KILL */
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+};
+
+struct sock_fprog prog = {
+    .len = sizeof(filter) / sizeof(filter[0]),
+    .filter = filter,
+};
+
+/* 启用 seccomp BPF */
+prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);  /* 必须先设置 */
+prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog);
+
+/* 或使用 seccomp() 系统调用（Linux 3.17+）*/
+syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog);
+```
+
+```bash
+# 查看进程的 seccomp 状态
+cat /proc/self/status | grep Seccomp
+# Seccomp: 0   (0=未启用, 1=STRICT, 2=FILTER)
+
+# Docker 默认 seccomp profile（阻止约 50 个危险调用）
+docker run --security-opt seccomp=unconfined ubuntu  # 禁用 seccomp
+docker run --security-opt seccomp=/path/to/profile.json ubuntu
+```
+
+---
+
+## 10. 在 Linux 5.x 中添加新系统调用
+
+以添加 `sys_mygetpid` 为例（仅返回当前进程 PID）：
+
+### 步骤一：定义系统调用实现
+
+```c
+/* kernel/myhello.c （新建文件）*/
+#include <linux/kernel.h>
+#include <linux/syscalls.h>
+#include <linux/pid.h>
+
+/* SYSCALL_DEFINE 宏会展开为 __x64_sys_mygetpid 等平台特定函数 */
+SYSCALL_DEFINE0(mygetpid)
+{
+    return task_tgid_vnr(current);  /* 返回进程 ID（虚拟命名空间中的 PID）*/
+}
+```
+
+### 步骤二：注册系统调用号
+
+```
+# arch/x86/entry/syscalls/syscall_64.tbl
+# 在末尾添加（假设下一个号是 548）：
+548  common  mygetpid     sys_mygetpid
+```
+
+### 步骤三：声明原型
+
+```c
+/* include/linux/syscalls.h — 在末尾添加 */
+asmlinkage long sys_mygetpid(void);
+```
+
+### 步骤四：加入编译
+
+```makefile
+# kernel/Makefile — 添加新文件
+obj-y += myhello.o
+```
+
+### 步骤五：重新编译并测试
+
+```c
+/* 用户态测试程序 */
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <stdio.h>
+
+#define __NR_mygetpid 548
+
+int main(void)
+{
+    long pid = syscall(__NR_mygetpid);
+    printf("mygetpid returned: %ld (getpid: %d)\n", pid, getpid());
+    return 0;
+}
+```
+
+---
+
+## 11. 系统调用号表演进（32 位 vs 64 位）
+
+```
+历史上系统调用号不统一，x86 平台有多套表：
+
+  arch/x86/entry/syscalls/syscall_32.tbl  — x86（32 位）
+  arch/x86/entry/syscalls/syscall_64.tbl  — x86_64（64 位）
+  arch/x86/entry/syscalls/syscall_x32.tbl — x32 ABI（64 位内核+32 位指针）
+
+部分关键差异（32 位 vs 64 位）：
+  调用    32 位号   64 位号
+  ───────────────────────────
+  read       3        0
+  write      4        1
+  open       5        2
+  close      6        3
+  fork       2       57
+  execve    11       59
+  exit       1       60
+  wait4    114      61 (wait4)
+  getpid    20       39
+  socket   359      41
+
+32 位程序在 64 位内核上运行（ia32 兼容模式）：
+  使用 int 0x80 或 sysenter → 进入 entry_INT80_compat()
+  内核根据 32 位调用号，查 syscall_32.tbl 分发
+
+64 位程序：
+  使用 syscall 指令 → 进入 entry_SYSCALL_64()
+  内核查 syscall_64.tbl
+
+# 在系统上查看当前系统调用数量
+ausyscall --dump | wc -l   # x86_64 目前约 330+ 个
+```

@@ -155,6 +155,8 @@ void un_wp_page(unsigned long *table_entry)
 
 ### 3.1 x86 两级页表结构
 
+![x86_64 四级页表](../assets/diagrams/page-table.svg)
+
 ```
 32位地址: [31..22][21..12][11..0]
            页目录索引  页表索引   页内偏移
@@ -352,4 +354,207 @@ cat /proc/slabinfo     # Slab 缓存信息
 > printf "page fault at 0x%lx\n", address
 > continue
 > end
+```
+
+---
+
+## 7. NUMA 架构与内存分区
+
+### 7.1 NUMA 拓扑：Node / Zone / Page
+
+```
+NUMA (Non-Uniform Memory Access) 架构：
+
+  ┌─────────────────────┐    ┌─────────────────────┐
+  │      Node 0          │    │      Node 1          │
+  │  ┌──────────────┐   │    │  ┌──────────────┐   │
+  │  │  CPU 0,1,2,3  │   │    │  │  CPU 4,5,6,7  │   │
+  │  └──────────────┘   │    │  └──────────────┘   │
+  │                      │    │                      │
+  │  本地内存（快速访问） │    │  本地内存（快速访问） │
+  │  16 GB               │◄──►│  16 GB               │
+  └─────────────────────┘    └─────────────────────┘
+        ↑ 跨节点访问（慢 ~2x）
+
+内核数据结构：
+  pg_data_t (node)
+   └── struct zone zones[] (区域)
+        └── struct page *  (页描述符数组)
+```
+
+### 7.2 内存区域（Zone）
+
+```
+x86_64 系统的内存区域（zone）划分：
+
+Zone 名称          物理地址范围              用途
+──────────────────────────────────────────────────────────
+ZONE_DMA           0 ~ 16MB                  旧式 ISA DMA 设备
+ZONE_DMA32         0 ~ 4GB                   只能访问 32 位地址的 DMA
+ZONE_NORMAL        16MB ~ 内存上限（通常全部）普通内核页面
+ZONE_HIGHMEM       仅 32 位系统 896MB 以上    32 位内核不能直接映射的高端内存
+ZONE_MOVABLE       高端内存子集               专用于可迁移页（内存热插拔）
+ZONE_DEVICE        设备内存（pmem 等）         持久内存/GPU 显存
+
+每个 zone 维护：
+  struct zone {
+      unsigned long free_pages;     /* 空闲页数 */
+      struct free_area free_area[MAX_ORDER]; /* 伙伴系统 */
+      struct per_cpu_pages pageset; /* per-CPU 页面缓存（快速分配）*/
+      unsigned long watermark[NR_WMARK]; /* 水位线：MIN/LOW/HIGH */
+      ...
+  };
+```
+
+### 7.3 水位线与 kswapd
+
+```
+Zone 水位线（watermark）控制内存回收行为：
+
+  free_pages
+  ┌─────────────────────────────────────────────┐
+  │                                             │ HIGH watermark
+  │   正常区域：内存充裕，无需回收              │
+  ├─────────────────────────────────────────────┤ LOW watermark
+  │   轻度压力：唤醒 kswapd 后台回收            │
+  ├─────────────────────────────────────────────┤ MIN watermark
+  │   严重压力：同步直接回收（影响业务延迟）    │
+  └─────────────────────────────────────────────┘
+  (0)
+
+kswapd（内核交换守护进程）：
+  - 每个 NUMA 节点一个 kswapd 内核线程
+  - 在 LOW 水位以下被唤醒，回收页面直到达到 HIGH 水位
+  - 回收对象：LRU 链表中的 inactive 页
+
+LRU 链表（active/inactive 双链表）：
+  ACTIVE_ANON    → 最近访问的匿名页（堆/栈）
+  INACTIVE_ANON  → 不活跃匿名页（候选交换到 swap）
+  ACTIVE_FILE    → 最近访问的文件映射页
+  INACTIVE_FILE  → 不活跃文件页（候选丢弃或写回磁盘）
+  UNEVICTABLE    → 不可回收页（mlock 锁定）
+
+页面从 active 到 inactive 的迁移：
+  每次 kswapd 扫描时，将 active 链表尾部页面移至 inactive
+  若 inactive 页面再次被访问（page fault 时 mark_page_accessed）→ 移回 active
+  若长期不访问 → 最终被 swap out 或丢弃
+```
+
+---
+
+## 8. OOM Killer：内存耗尽时的"牺牲者选择"
+
+```bash
+# 查看进程的 OOM 评分
+cat /proc/1234/oom_score       # OOM 杀手优先打分（越高越容易被杀）
+cat /proc/1234/oom_score_adj   # 调整值（-1000 ~ 1000，-1000 = 永不杀）
+cat /proc/1234/oom_adj         # 旧接口（-17 ~ 15，-17 = 永不杀）
+
+# 保护重要进程（如数据库）
+echo -1000 > /proc/$(pidof mysqld)/oom_score_adj
+
+# 手动触发 OOM（测试用）
+echo f > /proc/sysrq-trigger
+```
+
+**OOM 评分计算原理**：
+
+```c
+/* mm/oom_kill.c — oom_badness() */
+long oom_badness(struct task_struct *p, unsigned long totalpages)
+{
+    /* 基础分 = 进程占用的物理内存页数 */
+    long points = get_mm_rss(p->mm);
+    points += get_mm_counter(p->mm, MM_SWAPENTS);  /* + swap 使用 */
+    points += mm_pgtables_bytes(p->mm) / PAGE_SIZE; /* + 页表内存 */
+
+    /* 归一化到 0~1000 */
+    points = points * 1000 / totalpages;
+
+    /* 加上 oom_score_adj 调整值（-1000 ~ 1000 映射到 -1000 ~ 1000）*/
+    points += p->signal->oom_score_adj;
+
+    return points;  /* 分数最高的进程被杀死 */
+}
+
+/* OOM 触发后的流程 */
+out_of_memory()
+  → select_bad_process()      /* 遍历所有进程，找最高分 */
+  → oom_kill_process()        /* 发送 SIGKILL */
+  → 打印 "Out of memory: Kill process PID (name) score N or sacrifice child"
+```
+
+---
+
+## 9. 透明大页（THP）与 KSM
+
+### 9.1 透明大页（Transparent Huge Pages）
+
+```bash
+# 查看/设置 THP 模式
+cat /sys/kernel/mm/transparent_hugepage/enabled
+# 输出: [always] madvise never
+#   always  = 尽可能使用大页（2MB on x86）
+#   madvise = 只对 madvise(MADV_HUGEPAGE) 的区域使用
+#   never   = 禁用 THP
+
+# 切换模式
+echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+
+# 查看 THP 统计
+cat /proc/meminfo | grep -i huge
+# HugePages_Total: 0       ← 静态大页（需要预分配）
+# AnonHugePages: 24576 kB  ← THP 使用量（动态）
+
+# THP 碎片整理策略
+cat /sys/kernel/mm/transparent_hugepage/defrag
+# [always] defer defer+madvise madvise never
+echo defer+madvise > /sys/kernel/mm/transparent_hugepage/defrag
+```
+
+**THP 内核机制**：
+
+```
+当进程的匿名 VMA 满足条件时（大小 >= 2MB, 对齐）：
+  缺页中断 → do_anonymous_page()
+    → khugepaged 后台线程扫描，将相邻 512 个 4KB 页合并为一个 2MB 大页
+    → 直接分配：alloc_pages(GFP_HIGHUSER_MOVABLE, HPAGE_PMD_ORDER)
+
+好处：减少 TLB miss（1个 TLB 条目覆盖 2MB vs 4KB）
+坏处：内存碎片、合并/分裂开销；对 fork() 写时复制代价更高（2MB 一次复制）
+```
+
+### 9.2 KSM（内核相同页合并）
+
+```bash
+# KSM 将内容相同的匿名页合并为一个只读物理页（写时复制）
+# 常用于虚拟化（多个相同的 guest OS 页面）
+
+# 开启 KSM
+echo 1 > /sys/kernel/mm/ksm/run       # 1=运行, 0=停止, 2=停止+解除合并
+echo 1000 > /sys/kernel/mm/ksm/pages_to_scan  # 每次扫描的页数
+
+# 查看 KSM 状态
+cat /sys/kernel/mm/ksm/pages_shared    # 物理共享页数
+cat /sys/kernel/mm/ksm/pages_sharing   # 被合并（逻辑上使用）的页数
+cat /sys/kernel/mm/ksm/pages_unshared  # 扫描但未能合并的页数
+# 节省内存 = (pages_sharing - pages_shared) × PAGE_SIZE
+
+# 应用程序主动参与 KSM：
+madvise(addr, length, MADV_MERGEABLE);   /* 标记此区域供 KSM 扫描 */
+madvise(addr, length, MADV_UNMERGEABLE); /* 取消 */
+```
+
+**KSM 工作原理**：
+
+```
+ksmd 内核线程定期扫描标记为 MADV_MERGEABLE 的页：
+  1. 对每页计算 hash（基于内容）
+  2. 插入两棵红黑树：
+     unstable_tree（未经验证的候选）
+     stable_tree（已确认可共享的页）
+  3. 内容相同的页：
+     → 保留一个只读物理页（stable_tree 中）
+     → 其他进程的页表项指向同一物理页
+     → 设为写保护，触发写时复制时分裂
 ```

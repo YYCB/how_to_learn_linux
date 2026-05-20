@@ -3,6 +3,8 @@
 > 本章给出一条从零基础到能够阅读并修改内核源码的完整路线，
 > 包含各阶段目标、推荐时间、学习方法与检验标准。
 
+![Linux 内核架构总览](../assets/diagrams/arch-overview.svg)
+
 ---
 
 ## 总览：四个阶段
@@ -197,3 +199,77 @@ MODULE_LICENSE("GPL");
 > **核心原则**：不要只读，要 **画图 + 实验**。
 > 每读完一个函数，先画出它操作的数据结构，
 > 再在 QEMU 中用 GDB 跟踪验证自己的理解。
+
+---
+
+## 推荐书单与资源
+
+### 📚 书籍（按学习阶段排序）
+
+| 书名 | 作者 | 定位 | 说明 |
+|------|------|------|------|
+| **Understanding the Linux Kernel** | Bovet & Cesati | 核心参考 | 最全面的内核原理书，覆盖 2.6 版本；建议配合源码阅读 |
+| **Linux Kernel Development** | Robert Love | 入门进阶 | 文字友好，覆盖所有主要子系统，是入门 2.6 的最佳伴侣 |
+| **Linux Device Drivers** | Corbet, Rubini, Kroah-Hartman | 驱动开发 | 驱动开发圣经，**免费在线版**：[lwn.net/Kernel/LDD3](https://lwn.net/Kernel/LDD3/) |
+| **Professional Linux Kernel Architecture** | Wolfgang Mauerer | 深度进阶 | 覆盖面极广，适合有一定基础后系统性补全 |
+| **The Linux Programming Interface** | Michael Kerrisk | 系统编程 | 从用户空间角度理解系统调用，与内核知识互补 |
+| **Linux内核完全注释** | 赵炯 | 中文入门 | 专门针对 Linux 0.11，逐行注释，非常适合初学者 |
+
+### 🌐 在线资源
+
+| 资源 | 链接 | 必读程度 |
+|------|------|---------|
+| **kernel.org 官方文档** | [kernel.org/doc](https://www.kernel.org/doc/html/latest/) | ⭐⭐⭐ 必读 |
+| **LWN.net** | [lwn.net](https://lwn.net) | ⭐⭐⭐ **必读**，内核开发最权威的新闻/技术文章站 |
+| **kernelnewbies.org** | [kernelnewbies.org](https://kernelnewbies.org) | ⭐⭐ 推荐，每个版本的变更摘要极有价值 |
+| **Elixir Cross Referencer** | [elixir.bootlin.com](https://elixir.bootlin.com) | ⭐⭐⭐ 必备，在线代码索引，支持跨版本符号跳转 |
+| **Linux Kernel Map** | [makelinux.github.io/kernel/map](https://makelinux.github.io/kernel/map/) | ⭐⭐ 直观的内核结构可视化地图 |
+| **LKML（内核邮件列表）** | [lkml.org](https://lkml.org) | ⭐⭐ 了解真实开发讨论 |
+
+### 🎬 视频课程
+
+| 课程 | 说明 |
+|------|------|
+| **MIT 6.828 Operating System Engineering** | 最顶级的操作系统课，xv6 实验贯穿全课，配合内核学习效果极佳 |
+| **David Beazley — Python Concurrency From the Ground Up** | 虽然是 Python 演讲，但对并发、GIL、内核调度的讲解极有深度 |
+| **Linux Foundation 培训课程** | LFD420（内核内部原理）适合有基础后系统学习 |
+| **Bootlin 内核培训材料** | [bootlin.com/training](https://bootlin.com/training/) 的 PDF 免费下载，质量极高 |
+
+---
+
+## 检验学习效果的问题清单
+
+> 能独立、准确地回答以下问题，说明你已达到**专家级理解**。
+> 建议每完成一个阶段后，尝试不查资料口述答案。
+
+### 进程管理
+1. `fork()` 返回两次的原理是什么？内核是如何让父子进程分别返回不同值的？（提示：`pt_regs.eax`）
+2. 线程和进程在 Linux 内核中的**本质区别**是什么？`clone()` 的哪些 flag 决定了"线程"？
+3. `task_struct` 中的 `thread_info` 存放在哪里？为什么能用 `esp & ~0x1FFF` 快速找到它？
+4. 僵尸进程（Zombie）是如何产生的？为什么 `wait()` 必须被调用？孤儿进程如何处理？
+
+### 内存管理
+5. x86_64 四级页表的结构是什么？一次虚拟地址翻译需要几次内存访问？TLB 的作用是什么？
+6. 伙伴系统解决什么问题？Slab 分配器又解决什么问题？两者如何协作？
+7. 缺页中断（Page Fault）有哪几种情况？内核分别如何处理：匿名页、文件映射页、写时复制？
+8. OOM Killer 是如何选择"牺牲"进程的？`/proc/PID/oom_score` 的计算方式是什么？
+
+### 文件系统
+9. VFS 的四大核心对象（`super_block`/`inode`/`dentry`/`file`）分别代表什么？它们的生命周期有何不同？
+10. `dcache`（目录项缓存）的作用是什么？路径查找 `/home/user/file` 需要几次磁盘 IO？
+11. `fsync()` 和 `fdatasync()` 的区别是什么？ext4 三种 journal 模式（journal/ordered/writeback）各有什么代价？
+12. `io_uring` 相比传统 `read()`/`write()` 的核心优势是什么？SQE 和 CQE 各代表什么？
+
+### 系统调用
+13. `int 0x80` 和 `sysenter` 两种系统调用机制的开销差异在哪里？vDSO 如何绕过内核态切换？
+14. `seccomp BPF` 的工作原理是什么？容器运行时（如 Docker）如何利用它限制系统调用？
+15. 系统调用返回用户态前，内核会检查哪些"待办事项"？（信号、调度、TIF 标志）
+
+### 网络子系统
+16. `sk_buff` 的 `head/data/tail/end` 四个指针的含义是什么？为什么要有 headroom？
+17. 一个 TCP 数据包从网卡到用户进程 `recv()` 返回，经过了哪些内核函数？（完整调用链）
+18. netfilter 的五个 hook 点分别在网络栈的哪个位置？`iptables` 的 `PREROUTING/INPUT/OUTPUT` 各对应哪个 hook？
+
+### 同步机制
+19. `spin_lock` 和 `mutex` 的本质区别是什么？在中断上下文为什么不能使用 `mutex`？
+20. RCU 的"宽限期"（Grace Period）是如何定义的？`synchronize_rcu()` 和 `call_rcu()` 的区别是什么？在什么场景下选择哪个？

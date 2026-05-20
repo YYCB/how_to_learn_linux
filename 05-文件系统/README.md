@@ -179,6 +179,8 @@ struct m_inode *dir_namei(const char *pathname,
 
 ## 3. Linux 2.6.0：VFS + ext2
 
+![VFS 四大对象模型](../assets/diagrams/vfs-objects.svg)
+
 ### 3.1 VFS 核心数据结构
 
 #### super_block — 文件系统元信息
@@ -423,4 +425,188 @@ cat /proc/sys/fs/inode-state
 
 # 查看 ext2 超级块（Linux 系统）
 tune2fs -l /dev/sda1
+```
+
+---
+
+## 7. 页缓存回写机制（Page Cache Writeback）
+
+### 7.1 脏页（Dirty Page）与回写时机
+
+```
+应用程序写文件流程：
+
+write() → copy_from_user → 修改页缓存中的 page → 标记为 dirty
+
+"脏页"：内存中内容比磁盘更新的页面
+内核需要周期性将脏页写回磁盘（writeback）
+
+触发 writeback 的条件：
+  1. 定期触发：pdflush / writeback 内核线程，默认每 5 秒
+  2. 脏页比例过高：超过 dirty_ratio（默认 20%）→ 同步回写（阻塞写操作）
+  3. 脏页绝对量大：超过 dirty_bytes
+  4. 脏页滞留太久：超过 dirty_expire_centisecs（默认 3000 = 30 秒）
+  5. sync() / fsync() 系统调用
+```
+
+```bash
+# 重要的脏页控制参数
+cat /proc/sys/vm/dirty_ratio          # 脏页占总内存百分比上限（默认 20）
+                                       # 超过此值 → 写操作被阻塞，强制回写
+cat /proc/sys/vm/dirty_background_ratio # 后台回写触发阈值（默认 10）
+                                       # 超过此值 → 唤醒 writeback 线程
+cat /proc/sys/vm/dirty_expire_centisecs # 脏页最长存活时间（默认 3000 = 30s）
+cat /proc/sys/vm/dirty_writeback_centisecs # writeback 线程唤醒周期（默认 500 = 5s）
+
+# 手动触发全系统同步
+sync
+
+# 查看脏页数量
+cat /proc/meminfo | grep Dirty
+# Dirty: 1024 kB
+
+# 监控回写活动
+iostat -x 1    # 观察磁盘写 I/O
+```
+
+### 7.2 fsync / fdatasync / msync 比较
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  函数            │  写回数据  │  写回元数据（mtime/size）│  开销  │
+├──────────────────┼───────────┼─────────────────────────┼────────┤
+│  write()         │  仅修改缓存│  否（lazy update）       │  最小  │
+│  fdatasync(fd)   │  是        │  仅大小变化时（必要元数据）│  中   │
+│  fsync(fd)       │  是        │  是（全部元数据）         │  最大  │
+│  msync(addr,len) │  是（mmap）│  否                      │  中    │
+│  sync()          │  全系统    │  是                      │  最大  │
+└──────────────────┴───────────┴─────────────────────────┴────────┘
+
+实践建议：
+  · 数据库 WAL 日志：fdatasync()（只需确保数据落盘，不需要元数据）
+  · 关键配置文件保存：fsync()（需要 mtime 也正确）
+  · 高性能场景：O_DIRECT + fdatasync（绕过页缓存）
+
+内核路径（ext4）：
+  fsync() → vfs_fsync → file->f_op->fsync → ext4_sync_file
+    → filemap_write_and_wait_range()  ← 将脏页提交给块设备
+    → ext4_flush_completed_IO()
+    → jbd2_complete_transaction()    ← 等待 journal commit
+```
+
+---
+
+## 8. io_uring：高性能异步 I/O
+
+### 8.1 核心概念
+
+```
+传统异步 I/O 的问题：
+  aio_read() → 系统调用开销 + 需要多次进内核
+  epoll + nonblocking → 多次 read/write 系统调用
+
+io_uring 的解决方案：
+  共享内存环形队列（ring buffer），最小化系统调用次数
+
+  用户空间                         内核空间
+  ┌──────────────────────┐         ┌────────────────────────┐
+  │  SQE Ring（提交队列）│ ──────►  │  io_uring_sqe 处理      │
+  │  sqe[0] sqe[1] ...  │         │  （内核消费提交条目）    │
+  └──────────────────────┘         └────────────┬───────────┘
+                                                │ 完成后
+  ┌──────────────────────┐         ┌────────────▼───────────┐
+  │  CQE Ring（完成队列）│ ◄────────  │  io_uring_cqe 填充      │
+  │  cqe[0] cqe[1] ...  │         │  （内核生产完成条目）    │
+  └──────────────────────┘         └────────────────────────┘
+
+  用户程序轮询 CQE Ring → 不需要额外系统调用！
+```
+
+### 8.2 基本使用
+
+```c
+#include <liburing.h>
+
+struct io_uring ring;
+
+/* 初始化：队列深度 = 32 */
+io_uring_queue_init(32, &ring, 0);
+
+/* 提交读请求 */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, sizeof(buf), offset);
+sqe->user_data = 42;  /* 用于标识请求 */
+io_uring_submit(&ring);  /* 批量提交（一次系统调用）*/
+
+/* 等待完成 */
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);  /* 或 io_uring_peek_cqe（非阻塞）*/
+printf("read %d bytes, user_data=%llu\n", cqe->res, cqe->user_data);
+io_uring_cqe_seen(&ring, cqe);
+
+/* 清理 */
+io_uring_queue_exit(&ring);
+```
+
+### 8.3 io_uring_setup() 系统调用
+
+```c
+/* SQE（提交队列条目）— 描述一个 I/O 操作 */
+struct io_uring_sqe {
+    __u8    opcode;       /* IORING_OP_READ / WRITE / ACCEPT / SEND / ... */
+    __u8    flags;        /* IOSQE_FIXED_FILE / IOSQE_IO_LINK / ... */
+    __u16   ioprio;
+    __s32   fd;           /* 文件描述符（或 fixed fd index）*/
+    __u64   off;          /* 文件偏移 */
+    __u64   addr;         /* 缓冲区地址 */
+    __u32   len;          /* 长度 */
+    __u64   user_data;    /* 用户自定义标识（在 CQE 中原样返回）*/
+};
+
+/* CQE（完成队列条目）— 描述完成结果 */
+struct io_uring_cqe {
+    __u64   user_data;    /* 与 SQE 的 user_data 对应 */
+    __s32   res;          /* 系统调用返回值（< 0 = 错误码）*/
+    __u32   flags;
+};
+
+/* 零拷贝（Fixed Buffers）：预先注册缓冲区 */
+io_uring_register(ring_fd, IORING_REGISTER_BUFFERS, iovecs, nr_bufs);
+/* 之后用 IORING_OP_READ_FIXED 直接 DMA 到注册的缓冲区 */
+```
+
+---
+
+## 9. ext4 Journal 模式详解
+
+```
+ext4 支持三种 journal 模式，在性能与数据安全之间权衡：
+
+┌────────────────────────────────────────────────────────────────────┐
+│  模式        │  journal 内容          │  崩溃恢复          │  性能  │
+├──────────────┼────────────────────────┼────────────────────┼────────┤
+│  journal     │  数据块 + 元数据都写   │  最安全（完整回滚）│  最慢  │
+│              │  journal               │                    │        │
+├──────────────┼────────────────────────┼────────────────────┼────────┤
+│  ordered     │  仅元数据写 journal    │  安全（数据先写，  │  中等  │
+│  （默认）    │  但数据先于元数据落盘  │  元数据后提交）    │        │
+├──────────────┼────────────────────────┼────────────────────┼────────┤
+│  writeback   │  仅元数据写 journal    │  可能数据/元数据   │  最快  │
+│              │  数据随时写            │  不一致（需 fsck） │        │
+└──────────────┴────────────────────────┴────────────────────┴────────┘
+
+挂载时指定模式：
+  mount -o data=journal  /dev/sda1 /mnt   # journal 模式
+  mount -o data=ordered  /dev/sda1 /mnt   # ordered 模式（默认）
+  mount -o data=writeback /dev/sda1 /mnt  # writeback 模式
+
+推荐场景：
+  · 数据库文件目录：writeback + 应用层 fsync()（数据库自己管 journal）
+  · 普通文件系统：ordered（默认，平衡性能与安全）
+  · 最高安全性：journal（NFS 服务器、关键日志文件系统）
+
+journal commit 触发条件：
+  · 每 5 秒定期提交（commit_interval）
+  · fsync() / fdatasync() 调用
+  · journal 空间不足（jbd2 写满 → 触发 checkpoint）
 ```

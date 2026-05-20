@@ -98,6 +98,8 @@ void hd_interrupt(void)
 
 ## 3. Linux 2.6.0：统一设备模型
 
+![Linux 设备模型](../assets/diagrams/driver-model.svg)
+
 ### 3.1 设备模型的核心对象
 
 ```
@@ -416,4 +418,299 @@ echo "module mychardev +p" > /sys/kernel/debug/dynamic_debug/control
 dmesg | grep "Oops"
 # 使用 addr2line 或 gdb 定位崩溃位置
 addr2line -e vmlinux 0xc01234ab
+```
+
+---
+
+## 7. MSI / MSI-X 中断 vs 传统 INTx
+
+### 7.1 中断方式对比
+
+```
+传统 INTx（引脚中断）：
+  · PCI 设备拉低 INTA# 引脚
+  · 所有共享该引脚的设备共用一个中断号
+  · 问题：中断共享（需要轮询判断是哪个设备触发）
+          不支持多处理器亲和性（只能给一个 CPU）
+
+MSI（Message Signaled Interrupts）：
+  · 设备写一条特定内存地址（x86: 0xFEExxxxx）触发中断
+  · 每个设备独立中断号（无共享问题）
+  · 可以精确指定目标 CPU（affinity）
+  · PCIe 标准支持，每设备最多 32 个 MSI 向量
+
+MSI-X（MSI eXtended）：
+  · 每设备最多 2048 个独立中断向量
+  · 每个向量独立配置目标 CPU
+  · 高性能网卡/SSD 必用（多队列，队列绑定不同 CPU）
+```
+
+```c
+/* 在驱动中申请 MSI-X 中断 */
+int nvecs = pci_msix_vec_count(pdev);  /* 硬件支持的最大向量数 */
+struct msix_entry entries[4] = {
+    { .entry = 0 }, { .entry = 1 },
+    { .entry = 2 }, { .entry = 3 },
+};
+
+/* 分配 4 个 MSI-X 向量 */
+int ret = pci_enable_msix_exact(pdev, entries, 4);
+
+/* 为每个向量注册处理函数 */
+for (i = 0; i < 4; i++) {
+    ret = request_irq(entries[i].vector, my_msix_handler,
+                      0, "my_device", &my_queues[i]);
+    /* 设置 CPU 亲和性（队列 i 绑定 CPU i）*/
+    irq_set_affinity_hint(entries[i].vector, cpumask_of(i));
+}
+
+/* 清理 */
+pci_disable_msix(pdev);
+```
+
+---
+
+## 8. DMA API 与 IOMMU
+
+### 8.1 DMA 一致性内存 vs 流式 DMA
+
+```c
+/* ① dma_alloc_coherent：分配一致性 DMA 内存
+   适用：设备频繁读写的控制数据（描述符环、状态寄存器映射）
+   特点：CPU 和设备看到的内容始终一致（不需要显式 cache 刷新）
+         通常是非缓存映射（Uncached），访问速度较慢 */
+void *cpu_addr;
+dma_addr_t dma_handle;
+cpu_addr = dma_alloc_coherent(dev, 4096, &dma_handle, GFP_KERNEL);
+/* cpu_addr: 驱动用来读写的内核虚拟地址 */
+/* dma_handle: 写入设备寄存器的总线地址 */
+writel(dma_handle, dev_base + TX_DESC_REG);
+/* 释放 */
+dma_free_coherent(dev, 4096, cpu_addr, dma_handle);
+
+/* ② dma_map_single：流式 DMA 映射
+   适用：单次数据传输（网络包、磁盘块）
+   特点：对已有内存建立映射，速度快
+         需要显式 sync 保持 CPU/设备视图一致 */
+dma_addr_t dma_addr = dma_map_single(dev, buf, len, DMA_TO_DEVICE);
+if (dma_mapping_error(dev, dma_addr))
+    return -ENOMEM;
+/* ... 触发 DMA 传输 ... */
+dma_unmap_single(dev, dma_addr, len, DMA_TO_DEVICE);  /* 传输完后解除映射 */
+
+/* ③ dma_map_sg：散列/聚集（Scatter-Gather）DMA
+   适用：物理上不连续的缓冲区（如文件系统的 page cache） */
+int nents = dma_map_sg(dev, sgl, nsegs, DMA_FROM_DEVICE);
+struct scatterlist *sg;
+for_each_sg(sgl, sg, nents, i) {
+    /* sg_dma_address(sg): DMA 地址 */
+    /* sg_dma_len(sg):     长度 */
+}
+dma_unmap_sg(dev, sgl, nsegs, DMA_FROM_DEVICE);
+```
+
+### 8.2 IOMMU 作用
+
+```
+没有 IOMMU：设备可以 DMA 到任意物理地址 → 安全风险（DMA 攻击）
+有 IOMMU（Intel VT-d / AMD-Vi）：
+  · 设备只能访问 IOMMU 映射表中允许的内存范围
+  · dma_map_* API 在 IOMMU 中建立映射（类似进程页表）
+  · 设备隔离：虚拟机的设备无法访问宿主机内存（PCIe 直通安全基础）
+
+查看 IOMMU 状态：
+  dmesg | grep -i iommu
+  cat /sys/kernel/debug/iommu/iommu_groups/0/reserved_regions
+```
+
+---
+
+## 9. devm_* 资源管理函数
+
+`devm_*` 系列函数（device-managed）与设备生命周期绑定，
+设备移除时自动释放，避免驱动忘记清理资源：
+
+```c
+/* 传统方式：需要手动在 remove() 中配对释放 */
+void *buf = kmalloc(size, GFP_KERNEL);
+/* ...使用 buf ... */
+kfree(buf);  /* 必须记得调用！ */
+
+/* devm 方式：设备移除时自动 kfree */
+void *buf = devm_kmalloc(dev, size, GFP_KERNEL);
+/* 设备 remove 时自动释放，无需手动 kfree */
+
+/* 常用 devm_* 函数 */
+devm_kmalloc(dev, size, gfp)         /* 内存分配 */
+devm_kzalloc(dev, size, gfp)         /* 清零内存分配 */
+devm_ioremap(dev, offset, size)      /* I/O 内存映射 */
+devm_ioremap_resource(dev, res)      /* 从 platform_resource 映射 */
+devm_request_irq(dev, irq, handler, flags, name, data) /* 中断注册 */
+devm_request_mem_region(dev, start, n, name)  /* 申请 I/O 内存区域 */
+devm_gpio_request(dev, gpio, label)  /* GPIO 申请 */
+devm_clk_get(dev, id)               /* 时钟获取 */
+devm_regulator_get(dev, id)         /* 电源调节器 */
+devm_pinctrl_get(dev)               /* 引脚控制 */
+devm_iio_device_alloc(dev, priv_size) /* IIO 设备 */
+
+/* 自定义清理函数 */
+static void my_cleanup(void *data)
+{
+    struct my_device *mydev = data;
+    my_hardware_reset(mydev);
+}
+devm_add_action(dev, my_cleanup, mydev);  /* 设备移除时调用 */
+```
+
+---
+
+## 10. Platform 驱动完整示例（含设备树绑定）
+
+### 10.1 设备树绑定（DTS）
+
+```dts
+/* arch/arm64/boot/dts/vendor/board.dts */
+/ {
+    myled: myled@12340000 {
+        compatible = "vendor,myled";    /* 与驱动 of_match_table 对应 */
+        reg = <0x0 0x12340000 0x0 0x100>; /* 寄存器基地址和大小 */
+        interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&ccu CLK_LED>;
+        clock-names = "core";
+        reset-gpios = <&gpio 5 GPIO_ACTIVE_LOW>;
+        label = "power-led";
+        linux,default-trigger = "heartbeat";
+        status = "okay";
+    };
+};
+```
+
+### 10.2 Platform 驱动实现
+
+```c
+/* drivers/leds/leds-myled.c */
+#include <linux/module.h>
+#include <linux/platform_device.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
+#include <linux/io.h>
+#include <linux/clk.h>
+#include <linux/gpio/consumer.h>
+#include <linux/leds.h>
+
+#define LED_CTRL_REG    0x00
+#define LED_STATUS_REG  0x04
+#define LED_ENABLE_BIT  BIT(0)
+
+struct myled_priv {
+    struct led_classdev cdev;     /* LED 类设备（必须是第一个字段）*/
+    void __iomem *base;           /* 寄存器基地址 */
+    struct clk *clk;              /* 时钟 */
+    struct gpio_desc *reset_gpio; /* 复位 GPIO */
+    int irq;
+};
+
+static void myled_set_brightness(struct led_classdev *cdev,
+                                  enum led_brightness brightness)
+{
+    struct myled_priv *priv = container_of(cdev, struct myled_priv, cdev);
+    u32 val = readl(priv->base + LED_CTRL_REG);
+
+    if (brightness)
+        val |= LED_ENABLE_BIT;
+    else
+        val &= ~LED_ENABLE_BIT;
+
+    writel(val, priv->base + LED_CTRL_REG);
+}
+
+static irqreturn_t myled_irq_handler(int irq, void *dev_id)
+{
+    struct myled_priv *priv = dev_id;
+    u32 status = readl(priv->base + LED_STATUS_REG);
+    dev_dbg(priv->cdev.dev, "LED IRQ: status=0x%x\n", status);
+    /* 清除中断 */
+    writel(status, priv->base + LED_STATUS_REG);
+    return IRQ_HANDLED;
+}
+
+static int myled_probe(struct platform_device *pdev)
+{
+    struct device *dev = &pdev->dev;
+    struct myled_priv *priv;
+    struct resource *res;
+    int ret;
+
+    /* devm_kzalloc：设备移除时自动释放 */
+    priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+    if (!priv)
+        return -ENOMEM;
+
+    /* 从设备树获取寄存器地址并映射（devm 方式）*/
+    priv->base = devm_platform_ioremap_resource(pdev, 0);
+    if (IS_ERR(priv->base))
+        return PTR_ERR(priv->base);
+
+    /* 获取时钟 */
+    priv->clk = devm_clk_get(dev, "core");
+    if (IS_ERR(priv->clk))
+        return dev_err_probe(dev, PTR_ERR(priv->clk), "Failed to get clk\n");
+
+    ret = clk_prepare_enable(priv->clk);
+    if (ret)
+        return ret;
+
+    /* 获取 reset GPIO */
+    priv->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
+    if (IS_ERR(priv->reset_gpio))
+        return PTR_ERR(priv->reset_gpio);
+
+    /* 注册中断 */
+    priv->irq = platform_get_irq(pdev, 0);
+    if (priv->irq < 0)
+        return priv->irq;
+
+    ret = devm_request_irq(dev, priv->irq, myled_irq_handler,
+                           0, dev_name(dev), priv);
+    if (ret)
+        return ret;
+
+    /* 配置 LED 类设备 */
+    priv->cdev.name = of_get_property(dev->of_node, "label", NULL) ?: "myled";
+    priv->cdev.brightness_set = myled_set_brightness;
+    priv->cdev.max_brightness = 1;
+    priv->cdev.default_trigger =
+        of_get_property(dev->of_node, "linux,default-trigger", NULL);
+
+    /* 注册 LED 类设备（创建 /sys/class/leds/myled/）*/
+    ret = devm_led_classdev_register(dev, &priv->cdev);
+    if (ret)
+        return ret;
+
+    platform_set_drvdata(pdev, priv);
+    dev_info(dev, "myled: registered at 0x%p, irq=%d\n", priv->base, priv->irq);
+    return 0;
+}
+
+/* 设备树匹配表 */
+static const struct of_device_id myled_of_match[] = {
+    { .compatible = "vendor,myled" },
+    { /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, myled_of_match);
+
+static struct platform_driver myled_driver = {
+    .probe  = myled_probe,
+    /* remove 无需实现：devm_* 会自动清理所有资源 */
+    .driver = {
+        .name           = "myled",
+        .of_match_table = myled_of_match,
+        .pm             = &myled_pm_ops,  /* 可选：电源管理 */
+    },
+};
+
+module_platform_driver(myled_driver);  /* 替代 module_init/module_exit */
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("My LED platform driver example");
 ```

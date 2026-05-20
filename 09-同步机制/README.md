@@ -4,6 +4,8 @@
 > 本章从**为什么需要同步 → 各种锁的实现原理 → 使用场景**，
 > 对照 Linux 0.11（单处理器，禁中断）与 Linux 2.6.0（SMP，丰富锁原语）拆解。
 
+![内核同步机制全景](../assets/diagrams/sync-map.svg)
+
 ---
 
 ## 1. 并发场景与竞争条件
@@ -359,3 +361,338 @@ perf lock report
 > 2. 中断上下文用自旋锁
 > 3. 进程上下文且临界区短用自旋锁，长用互斥量
 > 4. 读远多于写用 RCU 或读写锁
+
+---
+
+## 9. 内存排序（Memory Ordering）
+
+### 9.1 TSO（Total Store Ordering）vs 弱内存序
+
+```
+不同 CPU 架构对内存操作的排序保证不同：
+
+x86/x86_64（TSO 模型）：
+  · store-store 有序（写-写不会乱序）
+  · load-load  有序（读-读不会乱序）
+  · load-store 有序
+  · 但：store-load 可能乱序！（这是 TSO 允许的唯一乱序）
+  · 因此：x86 上大多数场景不需要内存屏障
+
+ARM（弱内存序模型）：
+  · 所有类型的操作都可能乱序（load-load, store-store, load-store, store-load）
+  · 必须显式使用屏障指令（DMB, DSB, ISB）
+  · 后果：ARM 上的并发代码比 x86 需要更多 barrier
+
+示例：经典的"消息传递"模式
+  Thread 1 (writer)         Thread 2 (reader)
+  ─────────────────         ──────────────────
+  data = 42;                while (flag == 0) ;   /* 等待 */
+  flag = 1;                 use(data);             /* 读数据 */
+
+  在 x86 上：可能因 store-load 乱序导致 Thread 2 看到 flag=1 但 data 还是 0！
+  解决：在 flag=1 前加 smp_mb()（写屏障）
+```
+
+### 9.2 Linux 内核内存屏障 API
+
+```c
+/* 完整屏障（双向）：之前的 load/store 不会延迟到之后 */
+smp_mb()        /* SMP 内存屏障（单核无效果）*/
+mb()            /* 全内存屏障（含 I/O 内存）*/
+
+/* 写屏障：之前的所有 store 在此点前对其他 CPU 可见 */
+smp_wmb()       /* SMP 写屏障 */
+wmb()           /* 写屏障（含 I/O）*/
+
+/* 读屏障：确保之后的 load 看到屏障之前其他 CPU 的 store */
+smp_rmb()       /* SMP 读屏障 */
+rmb()           /* 读屏障（含 I/O）*/
+
+/* 编译器屏障：仅防止编译器重排，不生成 CPU 指令 */
+barrier()
+
+/* 带 acquire/release 语义的原子操作（Linux 4.x+）*/
+smp_load_acquire(ptr)    /* load + 隐含读屏障（之后的访问不会提前）*/
+smp_store_release(ptr, v)/* store + 隐含写屏障（之前的访问不会延后）*/
+
+/* x86 上 smp_mb() 的实现（注意实际的开销）*/
+/* x86:  lock; addl $0,0(%rsp)  或  mfence */
+/* ARM:  dmb ish（inner shareable domain barrier）*/
+
+/* 正确的"消息传递"模式 */
+/* 写者 */
+WRITE_ONCE(data, 42);
+smp_wmb();              /* 确保 data 写入先于 flag 写入 */
+WRITE_ONCE(flag, 1);
+
+/* 读者 */
+while (!READ_ONCE(flag))
+    cpu_relax();
+smp_rmb();              /* 确保看到 flag=1 后再读 data */
+val = READ_ONCE(data);  /* 保证是 42 */
+```
+
+---
+
+## 10. RCU 深度剖析
+
+### 10.1 宽限期（Grace Period）机制
+
+```
+RCU 的核心保证：
+  在宽限期结束后，所有在宽限期开始前就已存在的 RCU 读者都已完成。
+
+如何判断宽限期结束？
+  · Classic RCU（UP/树形 RCU）：
+    每个 CPU 经历一次上下文切换（quiescent state）→ 宽限期结束
+    因为：RCU 读临界区不能睡眠，上下文切换意味着退出了临界区
+
+  · SRCU（Sleepable RCU）：
+    允许读者在临界区内休眠
+    使用计数器（而非上下文切换）判断宽限期
+
+宽限期时间线：
+  T0: writer 调用 synchronize_rcu() 或 call_rcu()
+  T1: 内核开始监视所有 CPU 的 quiescent state
+  T2: CPU0 发生上下文切换（确认退出临界区）
+  T3: CPU1 发生上下文切换
+  T4: ... 所有 CPU 都经历过至少一次上下文切换
+  T5: 宽限期结束，synchronize_rcu() 返回 / call_rcu 回调被调用
+      → 现在可以安全释放旧数据
+```
+
+### 10.2 完整的 RCU 删除操作
+
+```c
+struct my_node {
+    int data;
+    struct list_head list;
+    struct rcu_head rcu;    /* 用于 call_rcu() 的回调链接 */
+};
+
+static LIST_HEAD(my_list);
+static DEFINE_SPINLOCK(list_lock);
+
+/* 读者：无锁遍历 */
+void read_data(void)
+{
+    struct my_node *node;
+
+    rcu_read_lock();   /* 禁止抢占（但不阻塞中断）*/
+    list_for_each_entry_rcu(node, &my_list, list) {
+        /* 使用 node->data，可以睡眠吗？不行！
+           classic RCU：rcu_read_lock 区间内不能睡眠 */
+        process(node->data);
+    }
+    rcu_read_unlock();  /* 允许抢占，标记退出临界区 */
+}
+
+/* 写者方式一：同步等待（调用者可以阻塞）*/
+void delete_sync(struct my_node *node)
+{
+    spin_lock(&list_lock);
+    list_del_rcu(&node->list);  /* 从链表删除（非原子，需持锁）*/
+    spin_unlock(&list_lock);
+
+    synchronize_rcu();  /* 阻塞，直到宽限期结束 */
+    kfree(node);        /* 安全释放 */
+}
+
+/* 写者方式二：异步回调（调用者不阻塞，适合中断上下文）*/
+static void my_node_free(struct rcu_head *rcu)
+{
+    struct my_node *node = container_of(rcu, struct my_node, rcu);
+    kfree(node);
+}
+
+void delete_async(struct my_node *node)
+{
+    spin_lock(&list_lock);
+    list_del_rcu(&node->list);
+    spin_unlock(&list_lock);
+
+    call_rcu(&node->rcu, my_node_free);  /* 宽限期后异步调用 */
+    /* 立即返回，不等待 */
+}
+
+/* 更新（修改链表中的节点值）*/
+void update_node(struct my_node *old_node, int new_data)
+{
+    struct my_node *new_node = kmalloc(sizeof(*new_node), GFP_KERNEL);
+    *new_node = *old_node;        /* 复制旧节点 */
+    new_node->data = new_data;    /* 修改副本 */
+
+    spin_lock(&list_lock);
+    /* 原子替换：先插入新节点，再删除旧节点 */
+    list_replace_rcu(&old_node->list, &new_node->list);
+    spin_unlock(&list_lock);
+
+    call_rcu(&old_node->rcu, my_node_free);
+}
+```
+
+### 10.3 内核中 RCU 的实际应用
+
+```
+task_struct 访问（进程链表）：
+  for_each_process_thread() 使用 RCU 遍历
+  → 遍历时无需持锁，极高效
+
+网络路由表：
+  fib_lookup() 在 rcu_read_lock() 保护下查路由
+  → 路由更新不会阻塞正在查找的数据包
+
+模块引用计数：
+  try_module_get() 使用 RCU 保护，防止模块卸载竞争
+
+文件系统 dcache：
+  __d_lookup_rcu() 无锁读取目录项缓存
+  → 路径查找的热路径性能极关键
+```
+
+---
+
+## 11. Lock-Free 数据结构（基于 RCU）
+
+```c
+/* 内核中的 RCU 保护链表（无锁读，有锁写）*/
+#include <linux/rculist.h>
+
+/* 无锁读者遍历（O(n)，无任何竞争）*/
+rcu_read_lock();
+list_for_each_entry_rcu(pos, head, member) {
+    /* ... */
+}
+rcu_read_unlock();
+
+/* 有锁写者 */
+spin_lock(&my_lock);
+list_add_rcu(&new->list, head);     /* 添加（rcu_assign_pointer 语义）*/
+list_del_rcu(&entry->list);         /* 删除（不立即释放！）*/
+spin_unlock(&my_lock);
+
+/* RCU 保护的哈希表（hlist）*/
+hlist_for_each_entry_rcu(pos, head, member) { ... }
+hlist_add_head_rcu(&new->node, head);
+hlist_del_rcu(&entry->node);
+
+/* CAS（Compare-And-Swap）原子操作实现 lock-free 结构 */
+/* 在内核中通过 cmpxchg() 实现 */
+old_val = READ_ONCE(*ptr);
+do {
+    new_val = compute_new(old_val);
+} while (cmpxchg(ptr, old_val, new_val) != old_val);
+/* 适合简单的计数器更新，不适合复杂数据结构 */
+```
+
+---
+
+## 12. futex 内部机制
+
+```c
+/* futex（Fast Userspace muTEX）：用户态的高效互斥锁 */
+
+/* 基本原理：
+   1. 无竞争时：完全在用户态用原子 CAS 完成（无系统调用）
+   2. 有竞争时：才陷入内核等待（系统调用开销只在真正竞争时发生）*/
+
+/* 用户态操作（glibc pthread_mutex_lock 简化版）*/
+static int futex_val = 1;  /* 1=解锁, 0=锁定, -1=锁定且有等待者 */
+
+void mutex_lock(int *uaddr)
+{
+    int c;
+    /* 尝试 CAS: 1 → 0（无竞争，纯用户态）*/
+    if ((c = cmpxchg(uaddr, 1, 0)) == 0)
+        return;  /* 成功获取锁，无系统调用！ */
+
+    /* 有竞争：陷入内核等待 */
+    if (c != -1)
+        c = xchg(uaddr, -1);  /* 标记有等待者：0/-1 → -1 */
+
+    while (c != 0) {
+        /* 系统调用：让当前线程进入 futex 等待队列 */
+        syscall(SYS_futex, uaddr, FUTEX_WAIT_PRIVATE, -1, NULL);
+        c = xchg(uaddr, -1);
+    }
+}
+
+void mutex_unlock(int *uaddr)
+{
+    /* 原子设为 1（解锁）*/
+    if (atomic_dec_and_fetch(uaddr) != 0) {
+        /* 有等待者（值为 -1），唤醒一个 */
+        WRITE_ONCE(*uaddr, 1);
+        /* 系统调用：唤醒 futex 等待队列中的一个线程 */
+        syscall(SYS_futex, uaddr, FUTEX_WAKE_PRIVATE, 1, NULL);
+    }
+}
+```
+
+**内核 futex 实现（kernel/futex/）**：
+
+```
+FUTEX_WAIT 系统调用路径：
+  sys_futex() → futex_wait()
+    1. 计算 hash：futex_hash_bucket(uaddr) → 找到 hash 桶
+       （uaddr 物理地址作为 key，防止跨进程共享时虚拟地址冲突）
+    2. 验证 *uaddr == val（原子检查）
+    3. 将当前进程加入 hash 桶的等待队列（struct futex_q）
+    4. 调度出去（schedule()）
+
+FUTEX_WAKE 系统调用路径：
+  sys_futex() → futex_wake()
+    1. 计算相同 hash：找到 hash 桶
+    2. 从等待队列取出 nr_wake 个进程
+    3. wake_up_q() 唤醒它们
+
+Priority Inheritance（优先级继承，pi_futex）：
+  FUTEX_LOCK_PI / FUTEX_UNLOCK_PI
+  防止优先级反转：低优先级持锁时，临时提升其优先级至等待者最高级别
+  rt_mutex 实现：内核维护持有者→等待者优先级继承链
+```
+
+---
+
+## 13. Per-CPU 变量
+
+```c
+/* Per-CPU 变量：每个 CPU 有独立副本，无需加锁 */
+
+/* 定义静态 per-CPU 变量 */
+DEFINE_PER_CPU(int, my_counter);
+DEFINE_PER_CPU(struct my_stats, cpu_stats);
+
+/* 访问 per-CPU 变量（需要禁止内核抢占）*/
+int val;
+
+/* 方式一：get_cpu_var / put_cpu_var（禁止抢占 + 返回当前 CPU 的变量引用）*/
+val = get_cpu_var(my_counter);     /* 禁止抢占，返回当前 CPU 的 my_counter */
+val++;
+put_cpu_var(my_counter);           /* 恢复抢占 */
+
+/* 方式二：this_cpu_* 系列（更快，隐式假设已禁止抢占或中断）*/
+this_cpu_inc(my_counter);          /* 原子 RMW，无需显式禁止抢占 */
+this_cpu_add(my_counter, 5);
+val = this_cpu_read(my_counter);
+
+/* 方式三：per_cpu_ptr（在中断或已禁抢占的上下文中）*/
+preempt_disable();
+int *ptr = this_cpu_ptr(&my_counter);
+(*ptr)++;
+preempt_enable();
+
+/* 跨 CPU 读取（读者需注意：值可能在读取过程中被其他 CPU 修改）*/
+for_each_possible_cpu(cpu) {
+    total += per_cpu(my_counter, cpu);
+}
+/* 要精确的跨 CPU 总和，需要 synchronize_rcu() 后再读取 */
+
+/* 应用场景 */
+/* 网络统计（net/core/net-procfs.c）*/
+DEFINE_PER_CPU(struct softnet_data, softnet_data);
+/* 内存分配（mm/percpu.c）*/
+DEFINE_PER_CPU_ALIGNED(struct pcpu_freelist, pcpu_freelist);
+/* 调度统计（kernel/sched/stats.h）*/
+DEFINE_PER_CPU(struct sched_info, cpu_sched_info);
+```
