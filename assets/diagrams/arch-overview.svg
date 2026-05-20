@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="-apple-system, sans-serif" font-size="13">
+  <defs>
+    <linearGradient id="userGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#58a6ff" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#58a6ff" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="kernGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#ff7b29" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#ff7b29" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="hwGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#bc8cff" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#bc8cff" stop-opacity="0.08"/>
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <!-- User Space -->
+  <rect x="20" y="20" width="860" height="90" rx="8" fill="url(#userGrad)" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="40" y="48" font-weight="700" fill="#58a6ff" font-size="16">用户空间 (User Space) — Ring 3</text>
+  <g font-size="12" fill="#e6edf3">
+    <rect x="50"  y="62" width="120" height="34" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="110" y="83" text-anchor="middle">应用程序</text>
+    <rect x="180" y="62" width="120" height="34" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="240" y="83" text-anchor="middle">Shell (bash)</text>
+    <rect x="310" y="62" width="120" height="34" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="370" y="83" text-anchor="middle">glibc / musl</text>
+    <rect x="440" y="62" width="160" height="34" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="520" y="83" text-anchor="middle">系统工具 (coreutils)</text>
+    <rect x="610" y="62" width="240" height="34" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="730" y="83" text-anchor="middle">服务进程 / 容器运行时</text>
+  </g>
+
+  <!-- syscall arrow -->
+  <line x1="450" y1="110" x2="450" y2="138" stroke="#8b949e" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="460" y="128" fill="#8b949e">系统调用 (int 0x80 / syscall / sysenter)</text>
+
+  <!-- Kernel Space -->
+  <rect x="20" y="138" width="860" height="270" rx="8" fill="url(#kernGrad)" stroke="#ff7b29" stroke-width="1.5"/>
+  <text x="40" y="166" font-weight="700" fill="#ff7b29" font-size="16">内核空间 (Kernel Space) — Ring 0</text>
+
+  <!-- Core Subsystems -->
+  <g font-size="12" fill="#e6edf3">
+    <rect x="40"  y="184" width="160" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="120" y="207" text-anchor="middle" font-weight="700" fill="#ff7b29">进程管理</text>
+    <text x="120" y="226" text-anchor="middle" fill="#8b949e" font-size="11">scheduler/fork/exit</text>
+    <text x="120" y="244" text-anchor="middle" fill="#8b949e" font-size="11">CFS / RT / Deadline</text>
+
+    <rect x="220" y="184" width="160" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="300" y="207" text-anchor="middle" font-weight="700" fill="#ff7b29">内存管理</text>
+    <text x="300" y="226" text-anchor="middle" fill="#8b949e" font-size="11">buddy / slab / vmalloc</text>
+    <text x="300" y="244" text-anchor="middle" fill="#8b949e" font-size="11">page cache / NUMA</text>
+
+    <rect x="400" y="184" width="160" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="480" y="207" text-anchor="middle" font-weight="700" fill="#ff7b29">VFS / 文件系统</text>
+    <text x="480" y="226" text-anchor="middle" fill="#8b949e" font-size="11">ext4 / btrfs / xfs</text>
+    <text x="480" y="244" text-anchor="middle" fill="#8b949e" font-size="11">tmpfs / procfs / sysfs</text>
+
+    <rect x="580" y="184" width="160" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="660" y="207" text-anchor="middle" font-weight="700" fill="#ff7b29">网络栈</text>
+    <text x="660" y="226" text-anchor="middle" fill="#8b949e" font-size="11">TCP/UDP/IP/ARP</text>
+    <text x="660" y="244" text-anchor="middle" fill="#8b949e" font-size="11">netfilter / XDP / eBPF</text>
+
+    <rect x="760" y="184" width="100" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="810" y="207" text-anchor="middle" font-weight="700" fill="#ff7b29">IPC</text>
+    <text x="810" y="226" text-anchor="middle" fill="#8b949e" font-size="11">signals/pipes</text>
+    <text x="810" y="244" text-anchor="middle" fill="#8b949e" font-size="11">shm/msgq/sem</text>
+  </g>
+
+  <!-- Driver Layer -->
+  <rect x="40" y="284" width="820" height="50" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+  <text x="450" y="304" text-anchor="middle" font-weight="700" fill="#56d364">设备驱动 (Device Drivers) — 字符 · 块 · 网络</text>
+  <text x="450" y="322" text-anchor="middle" fill="#8b949e" font-size="11">platform · PCI · USB · I²C · SPI · GPIO · DMA · IRQ subsystem</text>
+
+  <!-- HAL / Arch -->
+  <rect x="40" y="350" width="820" height="42" rx="6" fill="#1a2028" stroke="#bc8cff" stroke-width="1.5"/>
+  <text x="450" y="372" text-anchor="middle" font-weight="700" fill="#bc8cff">架构相关 (arch/) · 内存管理硬件 · 中断控制器 · 时钟源 · 原子指令</text>
+
+  <!-- Hardware boundary -->
+  <line x1="450" y1="408" x2="450" y2="436" stroke="#8b949e" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="460" y="426" fill="#8b949e">驱动 → 寄存器/MMIO/中断</text>
+
+  <!-- Hardware -->
+  <rect x="20" y="436" width="860" height="70" rx="8" fill="url(#hwGrad)" stroke="#bc8cff" stroke-width="1.5"/>
+  <text x="40" y="464" font-weight="700" fill="#bc8cff" font-size="16">硬件 (Hardware)</text>
+  <g font-size="12" fill="#e6edf3">
+    <rect x="50"  y="478" width="90"  height="22" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="95"  y="494" text-anchor="middle">CPU (x86/ARM)</text>
+    <rect x="150" y="478" width="80"  height="22" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="190" y="494" text-anchor="middle">DRAM</text>
+    <rect x="240" y="478" width="100" height="22" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="290" y="494" text-anchor="middle">NVMe / SATA</text>
+    <rect x="350" y="478" width="100" height="22" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="400" y="494" text-anchor="middle">NIC (网卡)</text>
+    <rect x="460" y="478" width="80"  height="22" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="500" y="494" text-anchor="middle">GPU</text>
+    <rect x="550" y="478" width="120" height="22" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="610" y="494" text-anchor="middle">USB / I²C 设备</text>
+    <rect x="680" y="478" width="170" height="22" rx="4" fill="#1a2028" stroke="#30363d"/>
+    <text x="765" y="494" text-anchor="middle">中断控制器 (APIC/GIC)</text>
+  </g>
+</svg>

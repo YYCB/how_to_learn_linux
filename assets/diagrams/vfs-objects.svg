@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="-apple-system, sans-serif" font-size="12">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+  <text x="450" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">VFS 四大对象关系 (Linux 2.6+)</text>
+
+  <!-- task_struct -->
+  <g transform="translate(40, 60)">
+    <rect width="180" height="110" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="90" y="22" text-anchor="middle" font-weight="700" fill="#ff7b29">task_struct</text>
+    <text x="90" y="38" text-anchor="middle" font-size="10" fill="#8b949e">进程描述符</text>
+    <line x1="0" y1="48" x2="180" y2="48" stroke="#30363d"/>
+    <text x="14" y="66" font-size="11" fill="#e6edf3">files_struct *files</text>
+    <text x="14" y="84" font-size="11" fill="#e6edf3">fs_struct *fs</text>
+    <text x="14" y="102" font-size="11" fill="#e6edf3">mm_struct *mm</text>
+  </g>
+
+  <!-- files_struct -->
+  <g transform="translate(290, 50)">
+    <rect width="180" height="130" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="90" y="22" text-anchor="middle" font-weight="700" fill="#58a6ff">files_struct</text>
+    <text x="90" y="38" text-anchor="middle" font-size="10" fill="#8b949e">每进程文件表</text>
+    <line x1="0" y1="48" x2="180" y2="48" stroke="#30363d"/>
+    <text x="14" y="66" font-size="11" fill="#e6edf3">fd_array[NR_OPEN]</text>
+    <text x="14" y="84" font-size="10" fill="#8b949e">[0] → stdin file</text>
+    <text x="14" y="100" font-size="10" fill="#8b949e">[1] → stdout file</text>
+    <text x="14" y="116" font-size="10" fill="#8b949e">[2] → stderr file</text>
+  </g>
+  <line x1="220" y1="115" x2="290" y2="115" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- file -->
+  <g transform="translate(540, 50)">
+    <rect width="180" height="160" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+    <text x="90" y="22" text-anchor="middle" font-weight="700" fill="#56d364">struct file</text>
+    <text x="90" y="38" text-anchor="middle" font-size="10" fill="#8b949e">打开的文件实例</text>
+    <line x1="0" y1="48" x2="180" y2="48" stroke="#30363d"/>
+    <text x="14" y="66" font-size="11" fill="#e6edf3">f_path.dentry</text>
+    <text x="14" y="84" font-size="11" fill="#e6edf3">f_path.mnt</text>
+    <text x="14" y="102" font-size="11" fill="#e6edf3">f_op (操作集)</text>
+    <text x="14" y="120" font-size="11" fill="#e6edf3">f_pos (读写位置)</text>
+    <text x="14" y="138" font-size="11" fill="#e6edf3">f_flags</text>
+    <text x="14" y="152" font-size="11" fill="#e6edf3">f_count (引用计数)</text>
+  </g>
+  <line x1="470" y1="130" x2="540" y2="130" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- dentry -->
+  <g transform="translate(540, 240)">
+    <rect width="180" height="120" rx="6" fill="#1a2028" stroke="#bc8cff" stroke-width="1.5"/>
+    <text x="90" y="22" text-anchor="middle" font-weight="700" fill="#bc8cff">struct dentry</text>
+    <text x="90" y="38" text-anchor="middle" font-size="10" fill="#8b949e">目录项 (dcache)</text>
+    <line x1="0" y1="48" x2="180" y2="48" stroke="#30363d"/>
+    <text x="14" y="66" font-size="11" fill="#e6edf3">d_name (文件名)</text>
+    <text x="14" y="84" font-size="11" fill="#e6edf3">d_parent (父)</text>
+    <text x="14" y="102" font-size="11" fill="#e6edf3">d_inode</text>
+  </g>
+  <line x1="630" y1="210" x2="630" y2="240" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- inode -->
+  <g transform="translate(290, 240)">
+    <rect width="180" height="170" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="1.5"/>
+    <text x="90" y="22" text-anchor="middle" font-weight="700" fill="#e3b341">struct inode</text>
+    <text x="90" y="38" text-anchor="middle" font-size="10" fill="#8b949e">文件元数据</text>
+    <line x1="0" y1="48" x2="180" y2="48" stroke="#30363d"/>
+    <text x="14" y="66" font-size="11" fill="#e6edf3">i_ino (编号)</text>
+    <text x="14" y="84" font-size="11" fill="#e6edf3">i_mode (权限/类型)</text>
+    <text x="14" y="102" font-size="11" fill="#e6edf3">i_size</text>
+    <text x="14" y="120" font-size="11" fill="#e6edf3">i_op (操作集)</text>
+    <text x="14" y="138" font-size="11" fill="#e6edf3">i_fop (默认 f_op)</text>
+    <text x="14" y="156" font-size="11" fill="#e6edf3">i_mapping (页缓存)</text>
+  </g>
+  <line x1="540" y1="300" x2="470" y2="300" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- super_block -->
+  <g transform="translate(40, 290)">
+    <rect width="180" height="120" rx="6" fill="#1a2028" stroke="#f85149" stroke-width="1.5"/>
+    <text x="90" y="22" text-anchor="middle" font-weight="700" fill="#f85149">super_block</text>
+    <text x="90" y="38" text-anchor="middle" font-size="10" fill="#8b949e">文件系统实例</text>
+    <line x1="0" y1="48" x2="180" y2="48" stroke="#30363d"/>
+    <text x="14" y="66" font-size="11" fill="#e6edf3">s_dev (设备)</text>
+    <text x="14" y="84" font-size="11" fill="#e6edf3">s_type → ext4</text>
+    <text x="14" y="102" font-size="11" fill="#e6edf3">s_root (根 dentry)</text>
+  </g>
+  <line x1="290" y1="330" x2="220" y2="330" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- address_space -->
+  <g transform="translate(540, 390)">
+    <rect width="180" height="100" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+    <text x="90" y="22" text-anchor="middle" font-weight="700" fill="#56d364">address_space</text>
+    <text x="90" y="38" text-anchor="middle" font-size="10" fill="#8b949e">页缓存 (radix tree)</text>
+    <line x1="0" y1="48" x2="180" y2="48" stroke="#30363d"/>
+    <text x="14" y="66" font-size="11" fill="#e6edf3">i_pages (XArray)</text>
+    <text x="14" y="84" font-size="11" fill="#e6edf3">a_ops (readpage 等)</text>
+  </g>
+  <line x1="450" y1="395" x2="540" y2="430" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- caption -->
+  <g transform="translate(40, 430)">
+    <rect width="460" height="80" rx="6" fill="#1a2028" stroke="#30363d"/>
+    <text x="20" y="22" fill="#ff7b29" font-weight="700">读取关系：</text>
+    <text x="20" y="40" font-size="11" fill="#e6edf3">task_struct → files_struct → file → dentry → inode → super_block</text>
+    <text x="20" y="60" fill="#56d364" font-weight="700">关键点：</text>
+    <text x="20" y="76" font-size="11" fill="#e6edf3">同一文件可被多次 open，多个 file 共享同一 inode</text>
+  </g>
+</svg>

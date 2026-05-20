@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 480" font-family="-apple-system, sans-serif" font-size="13">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <text x="450" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">CFS 完全公平调度器 (Completely Fair Scheduler)</text>
+  <text x="450" y="46" text-anchor="middle" font-size="12" fill="#8b949e">核心思想：所有进程"公平"获得 vruntime 增长 — 总是调度 vruntime 最小者</text>
+
+  <!-- 红黑树主体 -->
+  <g transform="translate(80, 80)">
+    <text x="370" y="20" text-anchor="middle" font-weight="700" fill="#58a6ff" font-size="15">每个 CPU 的运行队列 (cfs_rq) — 红黑树按 vruntime 排序</text>
+
+    <!-- Root node -->
+    <g transform="translate(340, 50)">
+      <circle r="28" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+      <text y="-2" text-anchor="middle" font-size="11" fill="#e6edf3" font-weight="700">P3</text>
+      <text y="14" text-anchor="middle" font-size="10" fill="#8b949e">vr=120</text>
+    </g>
+
+    <!-- Level 1 left/right -->
+    <line x1="362" y1="55" x2="220" y2="125" stroke="#8b949e" stroke-width="1.5"/>
+    <line x1="378" y1="55" x2="520" y2="125" stroke="#8b949e" stroke-width="1.5"/>
+    <g transform="translate(200, 130)">
+      <circle r="28" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+      <text y="-2" text-anchor="middle" font-size="11" fill="#e6edf3" font-weight="700">P1</text>
+      <text y="14" text-anchor="middle" font-size="10" fill="#8b949e">vr=85</text>
+    </g>
+    <g transform="translate(500, 130)">
+      <circle r="28" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+      <text y="-2" text-anchor="middle" font-size="11" fill="#e6edf3" font-weight="700">P5</text>
+      <text y="14" text-anchor="middle" font-size="10" fill="#8b949e">vr=150</text>
+    </g>
+
+    <!-- Level 2 -->
+    <line x1="180" y1="138" x2="100" y2="208" stroke="#8b949e" stroke-width="1.5"/>
+    <line x1="218" y1="138" x2="298" y2="208" stroke="#8b949e" stroke-width="1.5"/>
+    <line x1="482" y1="138" x2="402" y2="208" stroke="#8b949e" stroke-width="1.5"/>
+    <line x1="518" y1="138" x2="600" y2="208" stroke="#8b949e" stroke-width="1.5"/>
+
+    <g transform="translate(80, 215)">
+      <circle r="26" fill="#0f1419" stroke="#56d364" stroke-width="3"/>
+      <text y="-2" text-anchor="middle" font-size="11" fill="#56d364" font-weight="700">P0</text>
+      <text y="14" text-anchor="middle" font-size="10" fill="#56d364">vr=42</text>
+    </g>
+    <g transform="translate(280, 215)">
+      <circle r="26" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+      <text y="-2" text-anchor="middle" font-size="11" fill="#e6edf3" font-weight="700">P2</text>
+      <text y="14" text-anchor="middle" font-size="10" fill="#8b949e">vr=100</text>
+    </g>
+    <g transform="translate(380, 215)">
+      <circle r="26" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+      <text y="-2" text-anchor="middle" font-size="11" fill="#e6edf3" font-weight="700">P4</text>
+      <text y="14" text-anchor="middle" font-size="10" fill="#8b949e">vr=135</text>
+    </g>
+    <g transform="translate(620, 215)">
+      <circle r="26" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+      <text y="-2" text-anchor="middle" font-size="11" fill="#e6edf3" font-weight="700">P6</text>
+      <text y="14" text-anchor="middle" font-size="10" fill="#8b949e">vr=180</text>
+    </g>
+
+    <!-- leftmost arrow -->
+    <text x="80" y="280" text-anchor="middle" fill="#56d364" font-weight="700" font-size="13">↑</text>
+    <text x="80" y="298" text-anchor="middle" fill="#56d364" font-size="11">最左节点</text>
+    <text x="80" y="312" text-anchor="middle" fill="#56d364" font-size="11">下一个被调度</text>
+  </g>
+
+  <!-- vruntime formula box -->
+  <g transform="translate(80, 360)">
+    <rect x="0" y="0" width="350" height="100" rx="8" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="175" y="22" text-anchor="middle" font-weight="700" fill="#58a6ff">vruntime 计算公式</text>
+    <text x="20" y="46" font-family="monospace" fill="#e6edf3" font-size="12">
+      delta_vruntime = delta_exec ×
+    </text>
+    <text x="20" y="68" font-family="monospace" fill="#ff7b29" font-size="12">
+      NICE_0_LOAD / se.load.weight
+    </text>
+    <text x="20" y="88" font-size="11" fill="#8b949e">
+      · 高优先级 weight 大 → vruntime 增长慢 → 多调度
+    </text>
+    <text x="20" y="100" font-size="11" fill="#8b949e">
+      · 低优先级 weight 小 → vruntime 增长快 → 少调度
+    </text>
+  </g>
+
+  <!-- key ops -->
+  <g transform="translate(460, 360)">
+    <rect x="0" y="0" width="350" height="100" rx="8" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+    <text x="175" y="22" text-anchor="middle" font-weight="700" fill="#56d364">关键操作</text>
+    <text x="20" y="44" font-size="11" fill="#e6edf3">
+      <tspan font-weight="700" fill="#56d364">pick_next_task_fair():</tspan> O(log n)
+    </text>
+    <text x="20" y="58" font-size="11" fill="#8b949e">取最左节点 (rb_leftmost 缓存 → O(1))</text>
+    <text x="20" y="76" font-size="11" fill="#e6edf3">
+      <tspan font-weight="700" fill="#56d364">enqueue_task_fair():</tspan> O(log n) 插入
+    </text>
+    <text x="20" y="92" font-size="11" fill="#e6edf3">
+      <tspan font-weight="700" fill="#56d364">dequeue_task_fair():</tspan> O(log n) 删除
+    </text>
+  </g>
+</svg>

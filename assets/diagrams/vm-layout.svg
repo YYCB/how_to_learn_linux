@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 540" font-family="-apple-system, sans-serif" font-size="12">
+  <text x="450" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">进程虚拟地址空间布局 (x86_64, 经典)</text>
+
+  <!-- main bar -->
+  <g transform="translate(180, 60)">
+    <!-- Kernel space (top) -->
+    <rect x="0" y="0" width="200" height="60" fill="#1a2028" stroke="#f85149" stroke-width="1.5"/>
+    <text x="100" y="22" text-anchor="middle" font-weight="700" fill="#f85149">内核空间</text>
+    <text x="100" y="38" text-anchor="middle" font-size="10" fill="#8b949e">(所有进程共享)</text>
+    <text x="100" y="52" text-anchor="middle" font-size="10" fill="#8b949e">直接映射 / vmalloc / 模块</text>
+    <text x="-170" y="22" fill="#8b949e" font-family="monospace" font-size="10">0xFFFFFFFFFFFFFFFF</text>
+    <text x="-170" y="60" fill="#8b949e" font-family="monospace" font-size="10">0xFFFF800000000000</text>
+    <text x="220" y="35" fill="#f85149" font-size="11">128 TB</text>
+
+    <!-- Non-canonical hole -->
+    <rect x="0" y="60" width="200" height="22" fill="#0f1419" stroke="#30363d" stroke-dasharray="3,2"/>
+    <text x="100" y="76" text-anchor="middle" font-size="10" fill="#8b949e">不可用地址 (canonical hole)</text>
+
+    <!-- Stack -->
+    <rect x="0" y="82" width="200" height="48" fill="#1a2028" stroke="#e3b341" stroke-width="1.5"/>
+    <text x="100" y="100" text-anchor="middle" font-weight="700" fill="#e3b341">栈 (Stack) ↓向下增长</text>
+    <text x="100" y="118" text-anchor="middle" font-size="10" fill="#8b949e">函数调用 / 局部变量</text>
+    <text x="-170" y="100" fill="#8b949e" font-family="monospace" font-size="10">0x00007FFFFFFFFFFF</text>
+    <text x="220" y="106" fill="#e3b341" font-size="11">用户栈起始</text>
+
+    <!-- Hole -->
+    <rect x="0" y="130" width="200" height="26" fill="#0f1419" stroke="#30363d" stroke-dasharray="3,2"/>
+    <text x="100" y="148" text-anchor="middle" font-size="10" fill="#8b949e">未映射空间 (栈/堆之间)</text>
+
+    <!-- mmap area -->
+    <rect x="0" y="156" width="200" height="60" fill="#1a2028" stroke="#bc8cff" stroke-width="1.5"/>
+    <text x="100" y="178" text-anchor="middle" font-weight="700" fill="#bc8cff">mmap 区域 ↓</text>
+    <text x="100" y="196" text-anchor="middle" font-size="10" fill="#8b949e">共享库 / 匿名映射</text>
+    <text x="100" y="210" text-anchor="middle" font-size="10" fill="#8b949e">malloc 大块 (>128KB)</text>
+    <text x="220" y="190" fill="#bc8cff" font-size="11">mmap_base</text>
+
+    <!-- Hole -->
+    <rect x="0" y="216" width="200" height="20" fill="#0f1419" stroke="#30363d" stroke-dasharray="3,2"/>
+
+    <!-- Heap -->
+    <rect x="0" y="236" width="200" height="48" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+    <text x="100" y="254" text-anchor="middle" font-weight="700" fill="#56d364">堆 (Heap) ↑向上增长</text>
+    <text x="100" y="272" text-anchor="middle" font-size="10" fill="#8b949e">brk/sbrk · malloc 小块</text>
+    <text x="220" y="262" fill="#56d364" font-size="11">brk → end_brk</text>
+
+    <!-- BSS -->
+    <rect x="0" y="284" width="200" height="30" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="100" y="304" text-anchor="middle" fill="#58a6ff" font-weight="700">.bss 段 (未初始化全局)</text>
+
+    <!-- Data -->
+    <rect x="0" y="314" width="200" height="30" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="100" y="334" text-anchor="middle" fill="#58a6ff" font-weight="700">.data 段 (已初始化全局)</text>
+
+    <!-- Text -->
+    <rect x="0" y="344" width="200" height="46" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="100" y="364" text-anchor="middle" font-weight="700" fill="#ff7b29">.text 段 (代码, 只读)</text>
+    <text x="100" y="380" text-anchor="middle" font-size="10" fill="#8b949e">由 ELF 加载</text>
+    <text x="-170" y="368" fill="#8b949e" font-family="monospace" font-size="10">0x00400000</text>
+
+    <!-- Reserved -->
+    <rect x="0" y="390" width="200" height="50" fill="#0f1419" stroke="#30363d"/>
+    <text x="100" y="408" text-anchor="middle" font-size="11" fill="#f85149">不可访问 (NULL 指针保护)</text>
+    <text x="100" y="426" text-anchor="middle" font-size="10" fill="#8b949e">0x0 ~ 0x400000</text>
+    <text x="-170" y="430" fill="#8b949e" font-family="monospace" font-size="10">0x0000000000000000</text>
+  </g>
+
+  <!-- Right side: detail box -->
+  <g transform="translate(450, 60)">
+    <text x="0" y="14" font-weight="700" fill="#ff7b29" font-size="14">关键内核数据结构</text>
+
+    <rect x="0" y="30" width="420" height="100" rx="6" fill="#1a2028" stroke="#58a6ff"/>
+    <text x="10" y="50" font-weight="700" fill="#58a6ff">struct mm_struct</text>
+    <text x="10" y="68" font-size="11" fill="#8b949e">每进程一个,描述完整虚拟地址空间</text>
+    <text x="10" y="86" font-family="monospace" font-size="11" fill="#e6edf3">struct vm_area_struct *mmap;</text>
+    <text x="10" y="102" font-family="monospace" font-size="11" fill="#e6edf3">struct rb_root mm_rb;</text>
+    <text x="10" y="118" font-family="monospace" font-size="11" fill="#e6edf3">pgd_t *pgd; unsigned long brk;</text>
+
+    <rect x="0" y="150" width="420" height="100" rx="6" fill="#1a2028" stroke="#56d364"/>
+    <text x="10" y="170" font-weight="700" fill="#56d364">struct vm_area_struct (VMA)</text>
+    <text x="10" y="188" font-size="11" fill="#8b949e">表示一段连续的虚拟地址区域</text>
+    <text x="10" y="206" font-family="monospace" font-size="11" fill="#e6edf3">unsigned long vm_start, vm_end;</text>
+    <text x="10" y="222" font-family="monospace" font-size="11" fill="#e6edf3">unsigned long vm_flags;</text>
+    <text x="10" y="238" font-family="monospace" font-size="11" fill="#e6edf3">struct file *vm_file; (映射的文件)</text>
+
+    <rect x="0" y="270" width="420" height="115" rx="6" fill="#1a2028" stroke="#bc8cff"/>
+    <text x="10" y="290" font-weight="700" fill="#bc8cff">VMA 标志位</text>
+    <text x="10" y="308" font-family="monospace" font-size="11" fill="#e6edf3">VM_READ / VM_WRITE / VM_EXEC</text>
+    <text x="10" y="324" font-family="monospace" font-size="11" fill="#e6edf3">VM_SHARED / VM_PRIVATE</text>
+    <text x="10" y="340" font-family="monospace" font-size="11" fill="#e6edf3">VM_GROWSDOWN (栈)</text>
+    <text x="10" y="356" font-family="monospace" font-size="11" fill="#e6edf3">VM_LOCKED (mlock)</text>
+    <text x="10" y="372" font-family="monospace" font-size="11" fill="#e6edf3">VM_HUGETLB (大页)</text>
+  </g>
+
+  <!-- Caption -->
+  <text x="450" y="495" text-anchor="middle" font-size="11" fill="#8b949e">
+    每个进程虚拟地址空间 = 一组 VMA。访问越界 → 页错误 → 内核找不到对应 VMA → SIGSEGV
+  </text>
+  <text x="450" y="512" text-anchor="middle" font-size="11" fill="#8b949e">
+    cat /proc/&lt;pid&gt;/maps 可以查看任意进程的所有 VMA
+  </text>
+</svg>
