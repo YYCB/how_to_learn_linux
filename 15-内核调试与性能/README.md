@@ -578,11 +578,11 @@ perf script > after.perf
 ### 配置与原理
 
 ```bash
-# 内核配置
+# 内核配置（GENERIC 与 HW_TAGS 互斥，二选一）
 CONFIG_KASAN=y
 CONFIG_KASAN_GENERIC=y        # 软件实现（所有架构）
-# 或
-CONFIG_KASAN_HW_TAGS=y        # 硬件实现（ARM MTE，低开销）
+# 或（二选一，不可同时启用）
+CONFIG_KASAN_HW_TAGS=y        # 硬件实现（ARM MTE，低开销，需要 ARMv8.5+）
 
 # 开销：
 # - 内存：每8字节对应1字节 shadow（内存×2）

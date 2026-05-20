@@ -912,11 +912,14 @@ x86-64 随机化范围（4级分页）：
   物理地址：在 64GB 范围内随机选择加载地址
   模块区域：在内核附近 1GB 内随机分配
 
-随机化过程：
-  1. GRUB 传递随机种子（EFI Random Protocol 或 TSC）
-  2. 解压代码选择随机偏移量
-  3. 重定位内核到随机地址
-  4. 更新页表
+随机化过程（arch/x86/boot/compressed/kaslr.c）：
+  1. 熵来源（多源混合）：
+     - EFI Random Protocol（UEFI 固件提供）
+     - RDRAND/RDSEED 指令（Intel/AMD 硬件随机数）
+     - TSC（时间戳计数器，作为补充熵）
+  2. 解压代码（kaslr.c: choose_random_location()）选择随机偏移
+  3. 重定位内核到随机物理地址
+  4. 更新页表映射，跳入随机化后的内核地址
 ```
 
 ### KASLR 与调试
