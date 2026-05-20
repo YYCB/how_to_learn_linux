@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" font-family="-apple-system, sans-serif" font-size="12">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#ff7b29"/>
+    </marker>
+  </defs>
+  <text x="450" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">系统调用完整路径 (read(fd, buf, n) 为例)</text>
+
+  <!-- Stages -->
+  <g transform="translate(40, 60)">
+    <!-- Step 1 -->
+    <rect x="0" y="0" width="820" height="50" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="10" y="20" font-weight="700" fill="#58a6ff">① 用户程序 (用户态)</text>
+    <text x="20" y="40" font-family="monospace" font-size="11" fill="#e6edf3">
+      ret = read(3, buf, 1024);  // glibc 包装函数
+    </text>
+
+    <line x1="410" y1="50" x2="410" y2="70" stroke="#ff7b29" stroke-width="2" marker-end="url(#ar)"/>
+
+    <rect x="0" y="70" width="820" height="60" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="10" y="90" font-weight="700" fill="#58a6ff">② glibc 包装 (用户态)</text>
+    <text x="20" y="110" font-family="monospace" font-size="11" fill="#e6edf3">
+      mov $0, %rax     # __NR_read = 0
+    </text>
+    <text x="20" y="125" font-family="monospace" font-size="11" fill="#e6edf3">
+      syscall          # 触发系统调用 (x86_64) ; 或 int 0x80 (i386)
+    </text>
+
+    <line x1="410" y1="130" x2="410" y2="150" stroke="#ff7b29" stroke-width="2" marker-end="url(#ar)"/>
+
+    <rect x="0" y="150" width="820" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="10" y="170" font-weight="700" fill="#ff7b29">③ CPU 硬件切换 (Ring 3 → Ring 0)</text>
+    <text x="20" y="188" font-size="11" fill="#8b949e">· 从 MSR_LSTAR 读取入口地址 → 跳转到 entry_SYSCALL_64</text>
+    <text x="20" y="204" font-size="11" fill="#8b949e">· 切换到内核栈 (TSS.RSP0)</text>
+    <text x="20" y="220" font-size="11" fill="#8b949e">· 保存用户态 rip/rflags/rsp 等到内核栈 (构造 pt_regs)</text>
+
+    <line x1="410" y1="230" x2="410" y2="250" stroke="#ff7b29" stroke-width="2" marker-end="url(#ar)"/>
+
+    <rect x="0" y="250" width="820" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+    <text x="10" y="270" font-weight="700" fill="#ff7b29">④ 系统调用分发 (内核态)</text>
+    <text x="20" y="288" font-family="monospace" font-size="11" fill="#e6edf3">entry_SYSCALL_64 → do_syscall_64()</text>
+    <text x="20" y="304" font-family="monospace" font-size="11" fill="#e6edf3">→ sys_call_table[__NR_read](regs)</text>
+    <text x="20" y="320" font-family="monospace" font-size="11" fill="#56d364">→ ksys_read(fd, buf, count)</text>
+
+    <line x1="410" y1="330" x2="410" y2="350" stroke="#ff7b29" stroke-width="2" marker-end="url(#ar)"/>
+
+    <rect x="0" y="350" width="820" height="105" rx="6" fill="#1a2028" stroke="#bc8cff" stroke-width="1.5"/>
+    <text x="10" y="370" font-weight="700" fill="#bc8cff">⑤ VFS 通用路径 → 具体文件系统</text>
+    <text x="20" y="388" font-family="monospace" font-size="11" fill="#e6edf3">ksys_read → vfs_read → file-&gt;f_op-&gt;read_iter</text>
+    <text x="20" y="404" font-family="monospace" font-size="11" fill="#e6edf3">→ ext4_file_read_iter → generic_file_read_iter</text>
+    <text x="20" y="420" font-family="monospace" font-size="11" fill="#56d364">→ 页缓存命中? 是 → copy_to_user(buf, page, n) ✓</text>
+    <text x="20" y="436" font-family="monospace" font-size="11" fill="#f85149">→ 页缓存未命中? readpage → bio → 块设备 → 等待 IO</text>
+    <text x="20" y="450" font-family="monospace" font-size="10" fill="#8b949e">    (期间可能调度走，等 IO 完成被唤醒)</text>
+
+    <line x1="410" y1="455" x2="410" y2="475" stroke="#ff7b29" stroke-width="2" marker-end="url(#ar)"/>
+
+    <rect x="0" y="475" width="820" height="60" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+    <text x="10" y="495" font-weight="700" fill="#56d364">⑥ 返回用户态</text>
+    <text x="20" y="513" font-size="11" fill="#8b949e">· 检查 TIF_NEED_RESCHED / TIF_SIGPENDING → 必要时 schedule / 处理信号</text>
+    <text x="20" y="528" font-size="11" fill="#8b949e">· sysret/sysretq → 恢复 rip → 用户态继续执行</text>
+  </g>
+</svg>

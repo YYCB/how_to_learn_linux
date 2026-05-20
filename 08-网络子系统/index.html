@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 · 网络子系统 — sk_buff、TCP 状态机、XDP — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html" class="active">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">08</span>网络子系统 — sk_buff、TCP 状态机、XDP</h1>
+
+
+<p>网络栈是 Linux 内核最复杂的子系统，但只要抓住三条主线就能驾驭：<b>sk_buff (数据载体) · TCP 状态机 (协议) · netfilter (扩展点)</b>。</p>
+
+<h2 id="skb">8.1 sk_buff — 一切数据包的载体</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" font-family="-apple-system,sans-serif" font-size="11">
+<text x="400" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#ff7b29">struct sk_buff 内存布局</text>
+
+<g transform="translate(40, 60)">
+<rect width="270" height="280" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="135" y="22" text-anchor="middle" fill="#58a6ff" font-weight="700">struct sk_buff (元数据)</text>
+<line x1="0" y1="34" x2="270" y2="34" stroke="#30363d"/>
+<text x="14" y="54" font-family="monospace" fill="#e6edf3">struct sk_buff *next, *prev;</text>
+<text x="14" y="72" font-family="monospace" fill="#e6edf3">struct sock *sk;          (所属 socket)</text>
+<text x="14" y="90" font-family="monospace" fill="#e6edf3">struct net_device *dev;   (网卡)</text>
+<text x="14" y="108" font-family="monospace" fill="#e6edf3">__u32 len, data_len;</text>
+<text x="14" y="126" font-family="monospace" fill="#e6edf3">__u16 mac_len;</text>
+<text x="14" y="144" font-family="monospace" fill="#e6edf3">__u32 hash;</text>
+<text x="14" y="162" font-family="monospace" fill="#e6edf3">union { tcp_skb_cb cb; ... };</text>
+<line x1="0" y1="178" x2="270" y2="178" stroke="#30363d"/>
+<text x="14" y="200" fill="#56d364" font-weight="700">指向数据区的指针：</text>
+<text x="14" y="220" font-family="monospace" fill="#56d364">unsigned char *head;</text>
+<text x="14" y="238" font-family="monospace" fill="#56d364">unsigned char *data;     ← 当前协议头</text>
+<text x="14" y="256" font-family="monospace" fill="#56d364">unsigned char *tail;</text>
+<text x="14" y="274" font-family="monospace" fill="#56d364">unsigned char *end;</text>
+</g>
+
+<g transform="translate(360, 60)">
+<rect width="400" height="280" rx="6" fill="#0f1419" stroke="#ff7b29" stroke-width="1.5"/>
+<text x="200" y="22" text-anchor="middle" fill="#ff7b29" font-weight="700">数据缓冲区</text>
+<line x1="0" y1="34" x2="400" y2="34" stroke="#30363d"/>
+
+<rect x="20" y="50" width="360" height="24" fill="#1a2028" stroke="#bc8cff"/>
+<text x="200" y="66" text-anchor="middle" fill="#bc8cff">headroom (预留, 给下层加头)</text>
+
+<rect x="20" y="80" width="360" height="24" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+<text x="200" y="96" text-anchor="middle" fill="#56d364" font-weight="700">以太网帧头 (14B)</text>
+
+<rect x="20" y="110" width="360" height="24" fill="#1a2028" stroke="#56d364"/>
+<text x="200" y="126" text-anchor="middle" fill="#56d364">IP 头 (20B)</text>
+
+<rect x="20" y="140" width="360" height="24" fill="#1a2028" stroke="#56d364"/>
+<text x="200" y="156" text-anchor="middle" fill="#56d364">TCP 头 (20+ B)</text>
+
+<rect x="20" y="170" width="360" height="80" fill="#1a2028" stroke="#e3b341"/>
+<text x="200" y="194" text-anchor="middle" fill="#e3b341" font-weight="700">payload (用户数据)</text>
+<text x="200" y="214" text-anchor="middle" fill="#8b949e" font-size="10">data 指针随协议处理</text>
+<text x="200" y="230" text-anchor="middle" fill="#8b949e" font-size="10">用 skb_pull/push 调整</text>
+
+<rect x="20" y="256" width="360" height="20" fill="#1a2028" stroke="#bc8cff"/>
+<text x="200" y="270" text-anchor="middle" fill="#bc8cff">tailroom (预留)</text>
+</g>
+</svg>
+</div>
+
+<div class="callout deep">
+<div class="label">为什么 sk_buff 这样设计？</div>
+<p>包从网卡上来时，最外层是<b>以太网帧</b>。每经过一层（链路 → IP → TCP），就要"剥掉"一个头。
+若每层都拷贝一份数据 = 灾难。<b>sk_buff 通过移动 data 指针实现"零拷贝剥头"</b>，
+<code>skb_pull</code> 让 data 前移（剥头），<code>skb_push</code> 让 data 后移（加头，发送时）。</p>
+</div>
+
+<h2 id="rxpath">8.2 收包路径</h2>
+
+<pre class="code-c"><span class="cm">/* 1. 网卡硬中断 → 入 backlog 或 NAPI */</span>
+ISR (drivers/net/.../xxx.c):
+  napi_schedule(&napi);     <span class="cm">// 触发 NET_RX_SOFTIRQ</span>
+
+<span class="cm">/* 2. 软中断 net_rx_action() 调 NAPI poll */</span>
+xxx_poll(napi, budget):
+  <span class="kw">while</span> (有包 && budget--) {
+      skb = napi_alloc_skb(...);
+      <span class="cm">// DMA 已把数据放在 skb->data</span>
+      <span class="fn">netif_receive_skb</span>(skb);
+  }
+
+<span class="cm">/* 3. 通用 RX 入口 — 协议分发 */</span>
+__netif_receive_skb_core(skb):
+  <span class="cm">// 调用 XDP / tcpdump / vlan / netfilter ingress 等</span>
+  pt = ptype_base[ntohs(skb->protocol)];
+  pt->func(skb, ...);   <span class="cm">// → ip_rcv / arp_rcv / ...</span>
+
+<span class="cm">/* 4. IP 层 */</span>
+ip_rcv → ip_rcv_finish → ip_local_deliver → ip_local_deliver_finish:
+  ipprot = inet_protos[ip_hdr->protocol];
+  ipprot->handler(skb);     <span class="cm">// → tcp_v4_rcv / udp_rcv / icmp_rcv</span>
+
+<span class="cm">/* 5. TCP 层 */</span>
+tcp_v4_rcv:
+  sk = __inet_lookup_skb(...);   <span class="cm">// 找到 socket</span>
+  tcp_v4_do_rcv(sk, skb);
+    <span class="kw">if</span> (sk->state == TCP_ESTABLISHED)
+        tcp_rcv_established(...)  <span class="cm">// → 入 sk->sk_receive_queue</span>
+    <span class="kw">else</span>
+        tcp_rcv_state_process(...)  <span class="cm">// 处理握手/挥手</span>
+
+<span class="cm">/* 6. 用户态 read() 系统调用从 sk_receive_queue 取数据 */</span>
+</pre>
+
+<h2 id="tcp">8.3 TCP 三次握手 — 内核视角</h2>
+
+<div class="diagram">
+<img src="../assets/diagrams/tcp-handshake.svg" alt="TCP 三次握手">
+<div class="caption">客户端 / 服务端 状态机变化与对应内核代码路径</div>
+</div>
+
+<h3>半连接队列 vs 全连接队列</h3>
+
+<table>
+<tr><th>队列</th><th>状态</th><th>大小调节</th><th>溢出后果</th></tr>
+<tr><td>半连接 (syns_q)</td><td>SYN_RECV</td><td><code>tcp_max_syn_backlog</code></td><td>丢 SYN (SYN flood)</td></tr>
+<tr><td>全连接 (accept_q)</td><td>ESTABLISHED 待 accept</td><td>listen() 的 backlog</td><td>丢 ACK，客户端重传</td></tr>
+</table>
+
+<pre class="code-bash"><span class="cm"># 查看全连接队列溢出</span>
+ss -lnt | head
+nstat -az TcpExtListenOverflows
+nstat -az TcpExtListenDrops
+</pre>
+
+<h2 id="netfilter">8.4 netfilter — iptables 的内核基座</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280" font-family="-apple-system,sans-serif" font-size="11">
+<defs><marker id="arn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ff7b29"/></marker></defs>
+
+<text x="400" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#ff7b29">netfilter 5 个 hook 点</text>
+
+<rect x="20" y="50" width="80" height="40" rx="4" fill="#1a2028" stroke="#58a6ff"/>
+<text x="60" y="75" text-anchor="middle" fill="#58a6ff" font-weight="700">网卡</text>
+<line x1="100" y1="70" x2="130" y2="70" stroke="#ff7b29" marker-end="url(#arn)"/>
+
+<rect x="130" y="50" width="120" height="40" rx="4" fill="#1a2028" stroke="#ff7b29"/>
+<text x="190" y="68" text-anchor="middle" fill="#ff7b29" font-weight="700">PREROUTING</text>
+<text x="190" y="84" text-anchor="middle" fill="#8b949e" font-size="9">入口 (nat/mangle/raw)</text>
+<line x1="250" y1="70" x2="280" y2="70" stroke="#ff7b29" marker-end="url(#arn)"/>
+
+<rect x="280" y="50" width="100" height="40" rx="4" fill="#1a2028" stroke="#bc8cff"/>
+<text x="330" y="75" text-anchor="middle" fill="#bc8cff">路由判决</text>
+
+<line x1="330" y1="90" x2="200" y2="130" stroke="#ff7b29" marker-end="url(#arn)"/>
+<line x1="330" y1="90" x2="500" y2="130" stroke="#ff7b29" marker-end="url(#arn)"/>
+
+<rect x="120" y="135" width="140" height="40" rx="4" fill="#1a2028" stroke="#ff7b29"/>
+<text x="190" y="153" text-anchor="middle" fill="#ff7b29" font-weight="700">INPUT</text>
+<text x="190" y="169" text-anchor="middle" fill="#8b949e" font-size="9">给本机</text>
+
+<rect x="430" y="135" width="140" height="40" rx="4" fill="#1a2028" stroke="#ff7b29"/>
+<text x="500" y="153" text-anchor="middle" fill="#ff7b29" font-weight="700">FORWARD</text>
+<text x="500" y="169" text-anchor="middle" fill="#8b949e" font-size="9">转发别人</text>
+
+<line x1="190" y1="175" x2="190" y2="215" stroke="#ff7b29" marker-end="url(#arn)"/>
+<rect x="120" y="215" width="140" height="40" rx="4" fill="#1a2028" stroke="#56d364"/>
+<text x="190" y="240" text-anchor="middle" fill="#56d364">本机进程</text>
+
+<line x1="190" y1="255" x2="430" y2="215" stroke="#ff7b29" marker-end="url(#arn)"/>
+<rect x="430" y="215" width="140" height="40" rx="4" fill="#1a2028" stroke="#ff7b29"/>
+<text x="500" y="240" text-anchor="middle" fill="#ff7b29" font-weight="700">OUTPUT</text>
+
+<rect x="600" y="135" width="140" height="40" rx="4" fill="#1a2028" stroke="#ff7b29"/>
+<text x="670" y="153" text-anchor="middle" fill="#ff7b29" font-weight="700">POSTROUTING</text>
+<text x="670" y="169" text-anchor="middle" fill="#8b949e" font-size="9">出口 (nat/SNAT)</text>
+<line x1="570" y1="155" x2="600" y2="155" stroke="#ff7b29" marker-end="url(#arn)"/>
+<line x1="570" y1="225" x2="600" y2="170" stroke="#ff7b29" marker-end="url(#arn)"/>
+</svg>
+</div>
+
+<h2 id="xdp">8.5 XDP — 极致性能的包处理</h2>
+
+<p>XDP (eXpress Data Path) 在<b>网卡驱动收包的最早期</b>执行 eBPF 程序，性能远超 iptables：</p>
+
+<table>
+<tr><th>层级</th><th>每核 PPS (大致)</th><th>典型用途</th></tr>
+<tr><td>用户态 (DPDK 除外)</td><td>~1M</td><td>普通应用</td></tr>
+<tr><td>iptables</td><td>~5M</td><td>防火墙</td></tr>
+<tr><td>tc-bpf</td><td>~10M</td><td>流量控制</td></tr>
+<tr><td><b>XDP</b></td><td><b>20~50M+</b></td><td>DDoS 缓解、L4 负载均衡 (Katran)</td></tr>
+</table>
+
+<pre class="code-c"><span class="cm">/* xdp_drop_bad.bpf.c */</span>
+SEC(<span class="str">"xdp"</span>)
+<span class="kw">int</span> <span class="fn">xdp_drop_bad</span>(<span class="kw">struct</span> xdp_md *ctx) {
+    <span class="kw">void</span> *data     = (<span class="kw">void</span> *)(<span class="kw">long</span>)ctx->data;
+    <span class="kw">void</span> *data_end = (<span class="kw">void</span> *)(<span class="kw">long</span>)ctx->data_end;
+    <span class="kw">struct</span> ethhdr *eth = data;
+    <span class="kw">if</span> ((<span class="kw">void</span>*)(eth+<span class="num">1</span>) > data_end) <span class="kw">return</span> XDP_PASS;
+    <span class="kw">if</span> (eth->h_proto == bpf_htons(ETH_P_IP)) {
+        <span class="kw">struct</span> iphdr *ip = (<span class="kw">void</span>*)(eth+<span class="num">1</span>);
+        <span class="kw">if</span> ((<span class="kw">void</span>*)(ip+<span class="num">1</span>) > data_end) <span class="kw">return</span> XDP_PASS;
+        <span class="kw">if</span> (ip->protocol == IPPROTO_ICMP)
+            <span class="kw">return</span> XDP_DROP;   <span class="cm">// 丢所有 ICMP</span>
+    }
+    <span class="kw">return</span> XDP_PASS;
+}
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../07-设备驱动/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../09-同步机制/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

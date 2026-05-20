@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 · 设备驱动 — 字符/块/平台/PCI 驱动模型 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html" class="active">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">07</span>设备驱动 — 字符/块/平台/PCI 驱动模型</h1>
+
+
+<p>Linux 驱动是<b>内核中代码量最大的部分</b>（占比 &gt; 60%）。本章以"<b>字符设备 + 设备树</b>"为线索，串起整个驱动模型。</p>
+
+<h2 id="model">7.1 统一设备模型 (kobject + sysfs)</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" font-family="-apple-system,sans-serif" font-size="11">
+<defs><marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/></marker></defs>
+<text x="400" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#ff7b29">2.6+ 统一设备模型</text>
+
+<g><rect x="40" y="50" width="160" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="1.5"/>
+<text x="120" y="74" text-anchor="middle" fill="#ff7b29" font-weight="700">struct kobject</text>
+<text x="120" y="94" text-anchor="middle" fill="#8b949e" font-size="10">所有对象的基类</text>
+<text x="120" y="110" text-anchor="middle" fill="#8b949e" font-size="10">引用计数 + 树形组织</text></g>
+
+<g><rect x="320" y="50" width="160" height="80" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="400" y="74" text-anchor="middle" fill="#58a6ff" font-weight="700">struct device</text>
+<text x="400" y="94" text-anchor="middle" fill="#8b949e" font-size="10">具体设备实例</text>
+<text x="400" y="110" text-anchor="middle" fill="#8b949e" font-size="10">含 bus, driver, parent</text></g>
+
+<g><rect x="600" y="50" width="160" height="80" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+<text x="680" y="74" text-anchor="middle" fill="#56d364" font-weight="700">struct device_driver</text>
+<text x="680" y="94" text-anchor="middle" fill="#8b949e" font-size="10">驱动模块</text>
+<text x="680" y="110" text-anchor="middle" fill="#8b949e" font-size="10">probe/remove 回调</text></g>
+
+<line x1="200" y1="90" x2="320" y2="90" stroke="#8b949e" marker-end="url(#ar7)"/>
+<text x="260" y="82" font-size="10" fill="#8b949e" text-anchor="middle">嵌入</text>
+
+<line x1="480" y1="90" x2="600" y2="90" stroke="#8b949e" marker-end="url(#ar7)"/>
+<text x="540" y="82" font-size="10" fill="#8b949e" text-anchor="middle">匹配 (match)</text>
+
+<g><rect x="180" y="180" width="200" height="60" rx="6" fill="#1a2028" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="280" y="200" text-anchor="middle" fill="#bc8cff" font-weight="700">struct bus_type</text>
+<text x="280" y="220" text-anchor="middle" fill="#8b949e" font-size="10">PCI / USB / I²C / platform...</text></g>
+
+<g><rect x="420" y="180" width="200" height="60" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="1.5"/>
+<text x="520" y="200" text-anchor="middle" fill="#e3b341" font-weight="700">struct class</text>
+<text x="520" y="220" text-anchor="middle" fill="#8b949e" font-size="10">逻辑分组 (block, net, input...)</text></g>
+
+<line x1="280" y1="180" x2="350" y2="130" stroke="#8b949e" marker-end="url(#ar7)"/>
+<line x1="520" y1="180" x2="450" y2="130" stroke="#8b949e" marker-end="url(#ar7)"/>
+
+<g transform="translate(40, 280)">
+<rect width="720" height="60" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+<text x="20" y="22" fill="#56d364" font-weight="700">/sys 文件系统 — kobject 树的可视化</text>
+<text x="20" y="40" font-size="11" fill="#e6edf3">/sys/bus/pci/devices/...   /sys/class/net/eth0   /sys/devices/system/cpu/...</text>
+<text x="20" y="55" font-size="10" fill="#8b949e">每个 kobject = 一个目录；每个属性 = 一个文件 (读写触发 show/store 回调)</text>
+</g>
+</svg>
+</div>
+
+<h2 id="cdev">7.2 字符设备驱动完整模板</h2>
+
+<p>下面是一个<b>可编译运行</b>的最小字符设备驱动，实现 <code>/dev/hello</code> 读写：</p>
+
+<pre class="code-c"><span class="cm">/* hello_drv.c */</span>
+<span class="kw">#include</span> &lt;linux/module.h&gt;
+<span class="kw">#include</span> &lt;linux/fs.h&gt;
+<span class="kw">#include</span> &lt;linux/cdev.h&gt;
+<span class="kw">#include</span> &lt;linux/device.h&gt;
+<span class="kw">#include</span> &lt;linux/uaccess.h&gt;
+
+<span class="kw">static</span> dev_t devno;
+<span class="kw">static struct</span> cdev hello_cdev;
+<span class="kw">static struct</span> class *hello_class;
+<span class="kw">static char</span> buffer[<span class="num">128</span>] = <span class="str">"Hello from kernel!\n"</span>;
+<span class="kw">static</span> ssize_t buf_len = <span class="num">19</span>;
+
+<span class="kw">static</span> ssize_t <span class="fn">hello_read</span>(<span class="kw">struct</span> file *f, <span class="kw">char</span> __user *u, <span class="kw">size_t</span> n, loff_t *off) {
+    <span class="kw">if</span> (*off >= buf_len) <span class="kw">return</span> <span class="num">0</span>;          <span class="cm">// EOF</span>
+    n = min(n, (<span class="kw">size_t</span>)(buf_len - *off));
+    <span class="kw">if</span> (copy_to_user(u, buffer + *off, n)) <span class="kw">return</span> -EFAULT;
+    *off += n;
+    <span class="kw">return</span> n;
+}
+
+<span class="kw">static</span> ssize_t <span class="fn">hello_write</span>(<span class="kw">struct</span> file *f, <span class="kw">const char</span> __user *u, <span class="kw">size_t</span> n, loff_t *off) {
+    <span class="kw">if</span> (n > <span class="num">127</span>) n = <span class="num">127</span>;
+    <span class="kw">if</span> (copy_from_user(buffer, u, n)) <span class="kw">return</span> -EFAULT;
+    buffer[n] = <span class="str">'\0'</span>;
+    buf_len = n;
+    <span class="kw">return</span> n;
+}
+
+<span class="kw">static const struct</span> file_operations hello_fops = {
+    .owner = THIS_MODULE,
+    .read  = hello_read,
+    .write = hello_write,
+};
+
+<span class="kw">static int</span> <span class="fn">__init</span> <span class="fn">hello_init</span>(<span class="kw">void</span>) {
+    alloc_chrdev_region(&devno, <span class="num">0</span>, <span class="num">1</span>, <span class="str">"hello"</span>);
+    cdev_init(&hello_cdev, &hello_fops);
+    cdev_add(&hello_cdev, devno, <span class="num">1</span>);
+    hello_class = class_create(<span class="str">"hello_class"</span>);
+    device_create(hello_class, NULL, devno, NULL, <span class="str">"hello"</span>);  <span class="cm">// → /dev/hello</span>
+    pr_info(<span class="str">"hello driver loaded\n"</span>);
+    <span class="kw">return</span> <span class="num">0</span>;
+}
+
+<span class="kw">static void</span> <span class="fn">__exit</span> <span class="fn">hello_exit</span>(<span class="kw">void</span>) {
+    device_destroy(hello_class, devno);
+    class_destroy(hello_class);
+    cdev_del(&hello_cdev);
+    unregister_chrdev_region(devno, <span class="num">1</span>);
+}
+
+module_init(hello_init);
+module_exit(hello_exit);
+MODULE_LICENSE(<span class="str">"GPL"</span>);
+</pre>
+
+<pre class="code-bash"><span class="cm"># Makefile</span>
+obj-m += hello_drv.o
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+clean:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+
+<span class="cm"># 测试</span>
+$ make
+$ sudo insmod hello_drv.ko
+$ cat /dev/hello              <span class="cm"># Hello from kernel!</span>
+$ echo <span class="str">"hi there"</span> > /dev/hello
+$ cat /dev/hello              <span class="cm"># hi there</span>
+$ sudo rmmod hello_drv
+</pre>
+
+<h2 id="platform">7.3 平台设备 + 设备树 (ARM 嵌入式必懂)</h2>
+
+<p>x86 设备通过 ACPI 自动发现；ARM 等嵌入式没有 ACPI，靠<b>设备树 (DTS)</b> 描述硬件：</p>
+
+<pre class="code-c"><span class="cm">/* my_board.dts */</span>
+&i2c1 {
+    eeprom@<span class="num">50</span> {
+        compatible = <span class="str">"atmel,24c64"</span>;     <span class="cm">// 关键: 用于匹配驱动</span>
+        reg = <<span class="num">0x50</span>>;                    <span class="cm">// I2C 地址</span>
+        pagesize = <<span class="num">32</span>>;
+    };
+};
+
+<span class="cm">/* 驱动 (drivers/misc/eeprom/at24.c 简化) */</span>
+<span class="kw">static const struct</span> of_device_id at24_of_match[] = {
+    { .compatible = <span class="str">"atmel,24c64"</span> },
+    { },
+};
+
+<span class="kw">static struct</span> platform_driver at24_driver = {
+    .driver = {
+        .name = <span class="str">"at24"</span>,
+        .of_match_table = at24_of_match,
+    },
+    .probe = at24_probe,
+    .remove = at24_remove,
+};
+module_platform_driver(at24_driver);
+</pre>
+
+<h2 id="irq">7.4 中断处理 — 上下半部</h2>
+
+<pre class="code-c"><span class="cm">/* 上半部 (top half) — 中断上下文，必须快! */</span>
+<span class="kw">static</span> irqreturn_t <span class="fn">my_irq_handler</span>(<span class="kw">int</span> irq, <span class="kw">void</span> *dev_id) {
+    <span class="cm">// 1. 读寄存器确认是自己的中断</span>
+    <span class="kw">u32</span> status = readl(dev->regs + IRQ_STATUS);
+    <span class="kw">if</span> (!status) <span class="kw">return</span> IRQ_NONE;
+
+    <span class="cm">// 2. 清中断、关本中断</span>
+    writel(status, dev->regs + IRQ_CLEAR);
+
+    <span class="cm">// 3. 紧急工作做完就走 — 复杂处理交给下半部</span>
+    schedule_work(&dev->bh_work);
+
+    <span class="kw">return</span> IRQ_HANDLED;
+}
+
+<span class="cm">/* 下半部 (bottom half) — 进程上下文，可 sleep */</span>
+<span class="kw">static void</span> <span class="fn">my_bh_work</span>(<span class="kw">struct</span> work_struct *w) {
+    <span class="kw">struct</span> my_dev *dev = container_of(w, <span class="kw">struct</span> my_dev, bh_work);
+    <span class="cm">// 慢速操作: 读 DMA 数据、唤醒等待进程...</span>
+    wake_up_interruptible(&dev->wait);
+}
+
+<span class="cm">/* 注册中断 */</span>
+request_irq(irq, my_irq_handler, IRQF_SHARED, <span class="str">"my-dev"</span>, dev);
+</pre>
+
+<h3>下半部的三种方式</h3>
+<table>
+<tr><th>机制</th><th>上下文</th><th>能 sleep?</th><th>使用场景</th></tr>
+<tr><td>softirq</td><td>软中断上下文</td><td>否</td><td>网络收发、定时器 (固定 10 种)</td></tr>
+<tr><td>tasklet</td><td>软中断上下文</td><td>否</td><td>逐渐被 workqueue 取代</td></tr>
+<tr><td>workqueue</td><td><b>进程上下文</b></td><td><b>是</b></td><td>需要睡眠/分配的延后处理（首选）</td></tr>
+<tr><td>threaded IRQ</td><td>专用内核线程</td><td>是</td><td>低延迟 + 需睡眠 (RT 内核必备)</td></tr>
+</table>
+
+<h2 id="dma">7.5 DMA 简述</h2>
+
+<pre class="code-c"><span class="cm">/* DMA 一致性内存分配 — 内核 + 设备都能访问 */</span>
+dma_addr_t dma_handle;
+<span class="kw">void</span> *cpu_addr = dma_alloc_coherent(dev, size, &dma_handle, GFP_KERNEL);
+
+<span class="cm">/* 流式 DMA — 单向，更省事但要 sync */</span>
+dma_handle = dma_map_single(dev, buffer, len, DMA_TO_DEVICE);
+<span class="cm">// 把 dma_handle 给硬件 → 硬件 DMA 读完</span>
+dma_unmap_single(dev, dma_handle, len, DMA_TO_DEVICE);
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../06-系统调用/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../08-网络子系统/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

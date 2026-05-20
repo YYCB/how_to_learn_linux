@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" font-family="-apple-system, sans-serif" font-size="12">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+    <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#58a6ff"/>
+    </marker>
+    <marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#ff7b29"/>
+    </marker>
+  </defs>
+
+  <text x="450" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">TCP 三次握手 — 内核状态机视角</text>
+
+  <!-- Two columns -->
+  <text x="200" y="68" text-anchor="middle" font-weight="700" fill="#58a6ff" font-size="15">客户端 (Client)</text>
+  <text x="700" y="68" text-anchor="middle" font-weight="700" fill="#ff7b29" font-size="15">服务端 (Server)</text>
+
+  <!-- vertical lines -->
+  <line x1="200" y1="80" x2="200" y2="510" stroke="#30363d" stroke-dasharray="3,3"/>
+  <line x1="700" y1="80" x2="700" y2="510" stroke="#30363d" stroke-dasharray="3,3"/>
+
+  <!-- States client -->
+  <g>
+    <rect x="100" y="90" width="200" height="36" rx="4" fill="#1a2028" stroke="#58a6ff"/>
+    <text x="200" y="113" text-anchor="middle" fill="#e6edf3">CLOSED</text>
+  </g>
+  <text x="200" y="146" text-anchor="middle" font-size="11" fill="#8b949e">connect()</text>
+  <text x="200" y="160" text-anchor="middle" font-size="10" fill="#8b949e">tcp_v4_connect()</text>
+
+  <g>
+    <rect x="100" y="172" width="200" height="36" rx="4" fill="#1a2028" stroke="#e3b341"/>
+    <text x="200" y="195" text-anchor="middle" fill="#e3b341">SYN_SENT</text>
+  </g>
+
+  <g>
+    <rect x="100" y="320" width="200" height="36" rx="4" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+    <text x="200" y="343" text-anchor="middle" fill="#56d364" font-weight="700">ESTABLISHED</text>
+  </g>
+
+  <!-- States server -->
+  <g>
+    <rect x="600" y="90" width="200" height="36" rx="4" fill="#1a2028" stroke="#58a6ff"/>
+    <text x="700" y="113" text-anchor="middle" fill="#e6edf3">CLOSED</text>
+  </g>
+  <text x="700" y="146" text-anchor="middle" font-size="11" fill="#8b949e">listen()</text>
+  <text x="700" y="160" text-anchor="middle" font-size="10" fill="#8b949e">inet_listen()</text>
+
+  <g>
+    <rect x="600" y="172" width="200" height="36" rx="4" fill="#1a2028" stroke="#bc8cff"/>
+    <text x="700" y="195" text-anchor="middle" fill="#bc8cff">LISTEN</text>
+  </g>
+
+  <g>
+    <rect x="600" y="252" width="200" height="36" rx="4" fill="#1a2028" stroke="#e3b341"/>
+    <text x="700" y="275" text-anchor="middle" fill="#e3b341">SYN_RECV</text>
+  </g>
+
+  <g>
+    <rect x="600" y="380" width="200" height="36" rx="4" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+    <text x="700" y="403" text-anchor="middle" fill="#56d364" font-weight="700">ESTABLISHED</text>
+  </g>
+
+  <!-- packets -->
+  <g stroke="#58a6ff" stroke-width="2" fill="none">
+    <line x1="305" y1="225" x2="595" y2="265" marker-end="url(#arA)"/>
+  </g>
+  <rect x="350" y="218" width="200" height="22" rx="3" fill="#0f1419" stroke="#58a6ff"/>
+  <text x="450" y="234" text-anchor="middle" fill="#58a6ff" font-weight="700">① SYN  seq=x</text>
+
+  <g stroke="#ff7b29" stroke-width="2" fill="none">
+    <line x1="595" y1="285" x2="305" y2="325" marker-end="url(#arB)"/>
+  </g>
+  <rect x="320" y="278" width="260" height="22" rx="3" fill="#0f1419" stroke="#ff7b29"/>
+  <text x="450" y="294" text-anchor="middle" fill="#ff7b29" font-weight="700">② SYN+ACK  seq=y, ack=x+1</text>
+
+  <g stroke="#58a6ff" stroke-width="2" fill="none">
+    <line x1="305" y1="365" x2="595" y2="395" marker-end="url(#arA)"/>
+  </g>
+  <rect x="320" y="358" width="260" height="22" rx="3" fill="#0f1419" stroke="#58a6ff"/>
+  <text x="450" y="374" text-anchor="middle" fill="#58a6ff" font-weight="700">③ ACK  seq=x+1, ack=y+1</text>
+
+  <!-- Queue boxes -->
+  <g transform="translate(30, 440)">
+    <rect x="0" y="0" width="380" height="100" rx="6" fill="#1a2028" stroke="#bc8cff" stroke-width="1.5"/>
+    <text x="190" y="22" text-anchor="middle" fill="#bc8cff" font-weight="700" font-size="13">客户端关键代码路径</text>
+    <text x="10" y="42" font-size="11" fill="#8b949e">tcp_v4_connect() 构造 SYN 包</text>
+    <text x="10" y="58" font-size="11" fill="#8b949e">sk->state = TCP_SYN_SENT</text>
+    <text x="10" y="74" font-size="11" fill="#8b949e">tcp_rcv_synsent_state_process() 处理 SYN+ACK</text>
+    <text x="10" y="90" font-size="11" fill="#56d364">sk->state = TCP_ESTABLISHED → 唤醒 connect()</text>
+  </g>
+
+  <g transform="translate(490, 440)">
+    <rect x="0" y="0" width="380" height="100" rx="6" fill="#1a2028" stroke="#bc8cff" stroke-width="1.5"/>
+    <text x="190" y="22" text-anchor="middle" fill="#bc8cff" font-weight="700" font-size="13">服务端关键代码路径</text>
+    <text x="10" y="42" font-size="11" fill="#8b949e">tcp_v4_rcv → tcp_v4_do_rcv → tcp_v4_conn_request</text>
+    <text x="10" y="58" font-size="11" fill="#8b949e">入半连接队列 (syn_table) / SYN cookies</text>
+    <text x="10" y="74" font-size="11" fill="#8b949e">收到 ACK → tcp_check_req → tcp_v4_syn_recv_sock</text>
+    <text x="10" y="90" font-size="11" fill="#56d364">入全连接队列 → 唤醒 accept()</text>
+  </g>
+</svg>

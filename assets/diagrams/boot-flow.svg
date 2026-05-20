@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 460" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12">
+  <rect width="900" height="460" fill="#0d1117"/>
+  <text x="450" y="30" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">Linux 启动流程 — 从按下电源到 Shell 提示符</text>
+
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#ff7b29"/>
+    </marker>
+  </defs>
+
+  <!-- Stage boxes -->
+  <!-- 1 BIOS/UEFI -->
+  <rect x="20" y="55" width="120" height="80" rx="6" fill="#1a2028" stroke="#f85149" stroke-width="2"/>
+  <text x="80" y="80" text-anchor="middle" fill="#f85149" font-weight="700">① BIOS/UEFI</text>
+  <text x="80" y="97" text-anchor="middle" fill="#8b949e" font-size="10">POST 自检</text>
+  <text x="80" y="112" text-anchor="middle" fill="#8b949e" font-size="10">MBR/GPT 读取</text>
+  <text x="80" y="124" text-anchor="middle" fill="#8b949e" font-size="10">EFI stub 支持</text>
+
+  <line x1="140" y1="95" x2="170" y2="95" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- 2 Bootloader -->
+  <rect x="170" y="55" width="130" height="80" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="2"/>
+  <text x="235" y="80" text-anchor="middle" fill="#e3b341" font-weight="700">② Bootloader</text>
+  <text x="235" y="97" text-anchor="middle" fill="#8b949e" font-size="10">GRUB2 / systemd-boot</text>
+  <text x="235" y="112" text-anchor="middle" fill="#8b949e" font-size="10">选择内核版本</text>
+  <text x="235" y="124" text-anchor="middle" fill="#8b949e" font-size="10">加载 vmlinuz + initrd</text>
+
+  <line x1="300" y1="95" x2="330" y2="95" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- 3 Kernel decompress -->
+  <rect x="330" y="55" width="130" height="80" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+  <text x="395" y="75" text-anchor="middle" fill="#56d364" font-weight="700">③ 内核解压</text>
+  <text x="395" y="92" text-anchor="middle" fill="#8b949e" font-size="10">arch/x86/boot/</text>
+  <text x="395" y="107" text-anchor="middle" fill="#8b949e" font-size="10">header.S → main.c</text>
+  <text x="395" y="122" text-anchor="middle" fill="#8b949e" font-size="10">KASLR 随机地址</text>
+
+  <line x1="460" y1="95" x2="490" y2="95" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- 4 head.S -->
+  <rect x="490" y="55" width="130" height="80" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="2"/>
+  <text x="555" y="75" text-anchor="middle" fill="#58a6ff" font-weight="700">④ head.S</text>
+  <text x="555" y="92" text-anchor="middle" fill="#8b949e" font-size="10">建立 4 级页表</text>
+  <text x="555" y="107" text-anchor="middle" fill="#8b949e" font-size="10">跳入 64-bit 模式</text>
+  <text x="555" y="122" text-anchor="middle" fill="#8b949e" font-size="10">初始化 IDT/GDT</text>
+
+  <line x1="620" y1="95" x2="650" y2="95" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- 5 start_kernel -->
+  <rect x="650" y="55" width="140" height="80" rx="6" fill="#1a2028" stroke="#8957e5" stroke-width="2"/>
+  <text x="720" y="75" text-anchor="middle" fill="#8957e5" font-weight="700">⑤ start_kernel()</text>
+  <text x="720" y="92" text-anchor="middle" fill="#8b949e" font-size="10">setup_arch()</text>
+  <text x="720" y="107" text-anchor="middle" fill="#8b949e" font-size="10">mm_init(), sched_init()</text>
+  <text x="720" y="122" text-anchor="middle" fill="#8b949e" font-size="10">rest_init() →</text>
+
+  <!-- start_kernel sub steps -->
+  <rect x="30" y="175" width="840" height="110" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="450" y="198" text-anchor="middle" font-size="11" font-weight="600" fill="#8b949e">start_kernel() 关键调用序列</text>
+
+  <rect x="50" y="208" width="110" height="50" rx="4" fill="#0d1117" stroke="#56d364"/>
+  <text x="105" y="228" text-anchor="middle" fill="#56d364" font-size="10">setup_arch()</text>
+  <text x="105" y="243" text-anchor="middle" fill="#8b949e" font-size="9">ACPI/DMI/内存探测</text>
+
+  <rect x="170" y="208" width="110" height="50" rx="4" fill="#0d1117" stroke="#56d364"/>
+  <text x="225" y="228" text-anchor="middle" fill="#56d364" font-size="10">mm_init()</text>
+  <text x="225" y="243" text-anchor="middle" fill="#8b949e" font-size="9">buddy/slab 初始化</text>
+
+  <rect x="290" y="208" width="110" height="50" rx="4" fill="#0d1117" stroke="#56d364"/>
+  <text x="345" y="228" text-anchor="middle" fill="#56d364" font-size="10">sched_init()</text>
+  <text x="345" y="243" text-anchor="middle" fill="#8b949e" font-size="9">per-CPU runqueue</text>
+
+  <rect x="410" y="208" width="110" height="50" rx="4" fill="#0d1117" stroke="#56d364"/>
+  <text x="465" y="228" text-anchor="middle" fill="#56d364" font-size="10">vfs_caches_init()</text>
+  <text x="465" y="243" text-anchor="middle" fill="#8b949e" font-size="9">dcache/inode cache</text>
+
+  <rect x="530" y="208" width="110" height="50" rx="4" fill="#0d1117" stroke="#56d364"/>
+  <text x="585" y="228" text-anchor="middle" fill="#56d364" font-size="10">signals_init()</text>
+  <text x="585" y="243" text-anchor="middle" fill="#8b949e" font-size="9">信号队列</text>
+
+  <rect x="650" y="208" width="110" height="50" rx="4" fill="#0d1117" stroke="#e3b341"/>
+  <text x="705" y="228" text-anchor="middle" fill="#e3b341" font-size="10">rest_init()</text>
+  <text x="705" y="243" text-anchor="middle" fill="#8b949e" font-size="9">创建 PID-1/kthreadd</text>
+
+  <!-- arrows between sub-steps -->
+  <line x1="160" y1="233" x2="170" y2="233" stroke="#30363d" stroke-width="1" marker-end="url(#a)"/>
+  <line x1="280" y1="233" x2="290" y2="233" stroke="#30363d" stroke-width="1" marker-end="url(#a)"/>
+  <line x1="400" y1="233" x2="410" y2="233" stroke="#30363d" stroke-width="1" marker-end="url(#a)"/>
+  <line x1="520" y1="233" x2="530" y2="233" stroke="#30363d" stroke-width="1" marker-end="url(#a)"/>
+  <line x1="640" y1="233" x2="650" y2="233" stroke="#30363d" stroke-width="1" marker-end="url(#a)"/>
+
+  <!-- rest_init detail -->
+  <line x1="450" y1="285" x2="450" y2="315" stroke="#ff7b29" stroke-width="2" marker-end="url(#a)"/>
+
+  <rect x="30" y="315" width="840" height="80" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="450" y="338" text-anchor="middle" font-size="11" font-weight="600" fill="#8b949e">rest_init() — 诞生前三个进程</text>
+
+  <rect x="60" y="348" width="160" height="35" rx="4" fill="#0d1117" stroke="#f85149"/>
+  <text x="140" y="362" text-anchor="middle" fill="#f85149" font-weight="600">PID 0: swapper/idle</text>
+  <text x="140" y="376" text-anchor="middle" fill="#8b949e" font-size="9">rest_init 本身变成 idle</text>
+
+  <rect x="260" y="348" width="200" height="35" rx="4" fill="#0d1117" stroke="#56d364"/>
+  <text x="360" y="362" text-anchor="middle" fill="#56d364" font-weight="600">PID 1: init (systemd)</text>
+  <text x="360" y="376" text-anchor="middle" fill="#8b949e" font-size="9">kernel_thread(kernel_init) → execve(/sbin/init)</text>
+
+  <rect x="510" y="348" width="200" height="35" rx="4" fill="#0d1117" stroke="#58a6ff"/>
+  <text x="610" y="362" text-anchor="middle" fill="#58a6ff" font-weight="600">PID 2: kthreadd</text>
+  <text x="610" y="376" text-anchor="middle" fill="#8b949e" font-size="9">所有内核线程的父进程</text>
+
+  <!-- systemd chain -->
+  <rect x="30" y="415" width="840" height="35" rx="6" fill="#1a2028" stroke="#30363d"/>
+  <text x="450" y="432" text-anchor="middle" fill="#8b949e" font-size="10">systemd → 读 unit 文件 → 并行启动服务 → getty → login → bash → 🐧 Shell 提示符</text>
+</svg>

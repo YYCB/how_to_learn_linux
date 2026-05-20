@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 540" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12">
+  <rect width="900" height="540" fill="#0d1117"/>
+  <text x="450" y="32" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">eBPF 完整架构</text>
+
+  <!-- User Space -->
+  <rect x="20" y="50" width="860" height="130" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="40" y="72" font-size="11" font-weight="600" fill="#8b949e">USER SPACE</text>
+
+  <rect x="40" y="82" width="130" height="50" rx="5" fill="#1f2937" stroke="#56d364" stroke-width="1.5"/>
+  <text x="105" y="103" text-anchor="middle" fill="#56d364" font-weight="600">BCC / bpftrace</text>
+  <text x="105" y="120" text-anchor="middle" fill="#8b949e" font-size="10">高级前端工具</text>
+
+  <rect x="190" y="82" width="130" height="50" rx="5" fill="#1f2937" stroke="#56d364" stroke-width="1.5"/>
+  <text x="255" y="103" text-anchor="middle" fill="#56d364" font-weight="600">libbpf / CO-RE</text>
+  <text x="255" y="120" text-anchor="middle" fill="#8b949e" font-size="10">可移植加载库</text>
+
+  <rect x="340" y="82" width="130" height="50" rx="5" fill="#1f2937" stroke="#56d364" stroke-width="1.5"/>
+  <text x="405" y="103" text-anchor="middle" fill="#56d364" font-weight="600">clang / LLVM</text>
+  <text x="405" y="120" text-anchor="middle" fill="#8b949e" font-size="10">编译 C → BPF 字节码</text>
+
+  <rect x="490" y="82" width="130" height="50" rx="5" fill="#1f2937" stroke="#56d364" stroke-width="1.5"/>
+  <text x="555" y="103" text-anchor="middle" fill="#56d364" font-weight="600">bpftool</text>
+  <text x="555" y="120" text-anchor="middle" fill="#8b949e" font-size="10">程序/Map 管理</text>
+
+  <rect x="640" y="82" width="220" height="50" rx="5" fill="#1f2937" stroke="#56d364" stroke-width="1.5"/>
+  <text x="750" y="103" text-anchor="middle" fill="#56d364" font-weight="600">用户态 Map 读写</text>
+  <text x="750" y="120" text-anchor="middle" fill="#8b949e" font-size="10">bpf(BPF_MAP_LOOKUP_ELEM,...)</text>
+
+  <!-- Arrow into kernel -->
+  <line x1="450" y1="180" x2="450" y2="210" stroke="#ff7b29" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="470" y="200" fill="#ff7b29" font-size="10">bpf() syscall</text>
+
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#ff7b29"/>
+    </marker>
+    <marker id="arrb" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/>
+    </marker>
+  </defs>
+
+  <!-- Kernel Space -->
+  <rect x="20" y="215" width="860" height="295" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <text x="40" y="237" font-size="11" font-weight="600" fill="#8b949e">KERNEL SPACE</text>
+
+  <!-- Verifier -->
+  <rect x="40" y="248" width="180" height="80" rx="6" fill="#1a2028" stroke="#f85149" stroke-width="2"/>
+  <text x="130" y="270" text-anchor="middle" fill="#f85149" font-weight="700" font-size="13">Verifier (验证器)</text>
+  <text x="130" y="288" text-anchor="middle" fill="#8b949e" font-size="10">· 安全性检查</text>
+  <text x="130" y="302" text-anchor="middle" fill="#8b949e" font-size="10">· 循环有界性验证</text>
+  <text x="130" y="316" text-anchor="middle" fill="#8b949e" font-size="10">· 指针访问合法性</text>
+
+  <line x1="220" y1="288" x2="260" y2="288" stroke="#ff7b29" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- JIT -->
+  <rect x="260" y="248" width="180" height="80" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="2"/>
+  <text x="350" y="270" text-anchor="middle" fill="#e3b341" font-weight="700" font-size="13">JIT 编译器</text>
+  <text x="350" y="288" text-anchor="middle" fill="#8b949e" font-size="10">BPF 字节码</text>
+  <text x="350" y="302" text-anchor="middle" fill="#8b949e" font-size="10">↓</text>
+  <text x="350" y="316" text-anchor="middle" fill="#8b949e" font-size="10">本机机器码 (x86/ARM)</text>
+
+  <line x1="440" y1="288" x2="480" y2="288" stroke="#ff7b29" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- Maps -->
+  <rect x="480" y="248" width="180" height="80" rx="6" fill="#1a2028" stroke="#58a6ff" stroke-width="2"/>
+  <text x="570" y="270" text-anchor="middle" fill="#58a6ff" font-weight="700" font-size="13">BPF Maps</text>
+  <text x="570" y="288" text-anchor="middle" fill="#8b949e" font-size="10">Hash / Array / RingBuf</text>
+  <text x="570" y="302" text-anchor="middle" fill="#8b949e" font-size="10">PerfEvent / LRU Hash</text>
+  <text x="570" y="316" text-anchor="middle" fill="#8b949e" font-size="10">内核↔用户数据桥梁</text>
+
+  <line x1="660" y1="288" x2="700" y2="288" stroke="#ff7b29" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- Helper calls -->
+  <rect x="700" y="248" width="160" height="80" rx="6" fill="#1a2028" stroke="#8957e5" stroke-width="2"/>
+  <text x="780" y="270" text-anchor="middle" fill="#8957e5" font-weight="700" font-size="13">Helper 函数</text>
+  <text x="780" y="288" text-anchor="middle" fill="#8b949e" font-size="10">bpf_map_update_elem</text>
+  <text x="780" y="302" text-anchor="middle" fill="#8b949e" font-size="10">bpf_probe_read_kernel</text>
+  <text x="780" y="316" text-anchor="middle" fill="#8b949e" font-size="10">bpf_get_current_pid_tgid</text>
+
+  <!-- Hook points row -->
+  <text x="450" y="358" text-anchor="middle" font-size="11" font-weight="600" fill="#8b949e">挂载点 (Hook Points)</text>
+
+  <rect x="30" y="368" width="100" height="55" rx="5" fill="#0d1117" stroke="#56d364" stroke-width="1.5"/>
+  <text x="80" y="388" text-anchor="middle" fill="#56d364" font-weight="600" font-size="11">kprobe/</text>
+  <text x="80" y="403" text-anchor="middle" fill="#56d364" font-weight="600" font-size="11">kretprobe</text>
+  <text x="80" y="416" text-anchor="middle" fill="#8b949e" font-size="9">任意内核函数</text>
+
+  <rect x="140" y="368" width="100" height="55" rx="5" fill="#0d1117" stroke="#56d364" stroke-width="1.5"/>
+  <text x="190" y="388" text-anchor="middle" fill="#56d364" font-weight="600" font-size="11">uprobe/</text>
+  <text x="190" y="403" text-anchor="middle" fill="#56d364" font-weight="600" font-size="11">uretprobe</text>
+  <text x="190" y="416" text-anchor="middle" fill="#8b949e" font-size="9">用户态函数</text>
+
+  <rect x="250" y="368" width="100" height="55" rx="5" fill="#0d1117" stroke="#56d364" stroke-width="1.5"/>
+  <text x="300" y="388" text-anchor="middle" fill="#56d364" font-weight="600" font-size="11">tracepoint</text>
+  <text x="300" y="416" text-anchor="middle" fill="#8b949e" font-size="9">静态预设跟踪点</text>
+
+  <rect x="360" y="368" width="100" height="55" rx="5" fill="#0d1117" stroke="#e3b341" stroke-width="1.5"/>
+  <text x="410" y="388" text-anchor="middle" fill="#e3b341" font-weight="600" font-size="11">XDP</text>
+  <text x="410" y="403" text-anchor="middle" fill="#8b949e" font-size="9">网卡驱动层</text>
+  <text x="410" y="416" text-anchor="middle" fill="#8b949e" font-size="9">最高性能包处理</text>
+
+  <rect x="470" y="368" width="100" height="55" rx="5" fill="#0d1117" stroke="#e3b341" stroke-width="1.5"/>
+  <text x="520" y="388" text-anchor="middle" fill="#e3b341" font-weight="600" font-size="11">TC (traffic</text>
+  <text x="520" y="403" text-anchor="middle" fill="#e3b341" font-weight="600" font-size="11">control)</text>
+  <text x="520" y="416" text-anchor="middle" fill="#8b949e" font-size="9">网络层流量控制</text>
+
+  <rect x="580" y="368" width="100" height="55" rx="5" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="630" y="388" text-anchor="middle" fill="#58a6ff" font-weight="600" font-size="11">socket filter</text>
+  <text x="630" y="403" text-anchor="middle" fill="#8b949e" font-size="9">套接字级过滤</text>
+  <text x="630" y="416" text-anchor="middle" fill="#8b949e" font-size="9">(seccomp 基础)</text>
+
+  <rect x="690" y="368" width="100" height="55" rx="5" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="740" y="388" text-anchor="middle" fill="#58a6ff" font-weight="600" font-size="11">cgroup</text>
+  <text x="740" y="416" text-anchor="middle" fill="#8b949e" font-size="9">资源控制/策略</text>
+
+  <rect x="800" y="368" width="80" height="55" rx="5" fill="#0d1117" stroke="#8957e5" stroke-width="1.5"/>
+  <text x="840" y="388" text-anchor="middle" fill="#8957e5" font-weight="600" font-size="11">LSM</text>
+  <text x="840" y="403" text-anchor="middle" fill="#8b949e" font-size="9">安全策略</text>
+  <text x="840" y="416" text-anchor="middle" fill="#8b949e" font-size="9">hooks</text>
+
+  <!-- bottom label -->
+  <text x="450" y="508" text-anchor="middle" fill="#8b949e" font-size="11">BPF 程序在 hook 触发时以 JIT 本机速度运行，通过 Map 与用户态双向通信</text>
+</svg>

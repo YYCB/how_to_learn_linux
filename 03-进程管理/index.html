@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 · 进程管理 — task_struct、fork、上下文切换 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html" class="active">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">03</span>进程管理 — task_struct、fork、上下文切换</h1>
+
+
+<p>进程管理是内核的<b>核心中的核心</b>。掌握本章后，你就能回答："从我敲下 <code>./hello</code> 回车到 <code>printf</code> 输出，内核里到底发生了什么？"</p>
+
+<h2 id="layout">3.1 虚拟地址空间布局</h2>
+<div class="diagram">
+<img src="../assets/diagrams/vm-layout.svg" alt="进程虚拟地址空间">
+<div class="caption">每个进程独立拥有的 128TB 虚拟地址空间（x86_64）</div>
+</div>
+
+<h2 id="task_struct">3.2 task_struct — 一切的源头</h2>
+
+<p>Linux 把所有"可运行单元"（不管是进程还是线程）都用 <code>task_struct</code> 表示。这是<b>内核里最大的结构体</b>，包含 ~400 个字段。</p>
+
+<pre class="code-c"><span class="cm">/* include/linux/sched.h — 简化版核心字段 */</span>
+<span class="kw">struct</span> task_struct {
+    <span class="cm">/* === 调度相关 === */</span>
+    <span class="kw">unsigned int</span> __state;          <span class="cm">// TASK_RUNNING / TASK_INTERRUPTIBLE / ...</span>
+    <span class="kw">void</span> *stack;                    <span class="cm">// 内核栈指针</span>
+    <span class="kw">int</span> prio, static_prio, normal_prio;
+    <span class="kw">struct</span> sched_entity se;         <span class="cm">// CFS 调度实体 (含 vruntime)</span>
+    <span class="kw">const struct</span> sched_class *sched_class;
+
+    <span class="cm">/* === 进程身份 === */</span>
+    pid_t pid;                      <span class="cm">// 进程 ID (在 PID 命名空间内)</span>
+    pid_t tgid;                     <span class="cm">// 线程组 ID = 主线程 pid</span>
+    <span class="kw">struct</span> task_struct __rcu *parent;
+    <span class="kw">struct</span> list_head children;
+    <span class="kw">struct</span> list_head sibling;
+
+    <span class="cm">/* === 内存 === */</span>
+    <span class="kw">struct</span> mm_struct *mm;          <span class="cm">// 用户进程的地址空间（线程共享）</span>
+    <span class="kw">struct</span> mm_struct *active_mm;   <span class="cm">// 内核线程"借用"的 mm</span>
+
+    <span class="cm">/* === 文件 === */</span>
+    <span class="kw">struct</span> files_struct *files;    <span class="cm">// 打开的文件表</span>
+    <span class="kw">struct</span> fs_struct *fs;          <span class="cm">// 当前目录、根目录</span>
+
+    <span class="cm">/* === 信号 === */</span>
+    <span class="kw">struct</span> signal_struct *signal;
+    <span class="kw">struct</span> sighand_struct *sighand;
+    sigset_t blocked, real_blocked;
+
+    <span class="cm">/* === 命名空间 (容器关键) === */</span>
+    <span class="kw">struct</span> nsproxy *nsproxy;       <span class="cm">// 8 个 namespace 指针</span>
+
+    <span class="cm">/* === cgroup === */</span>
+    <span class="kw">struct</span> css_set __rcu *cgroups;
+
+    <span class="cm">/* === 凭证 === */</span>
+    <span class="kw">const struct</span> cred __rcu *real_cred;
+    <span class="kw">const struct</span> cred __rcu *cred;
+
+    <span class="cm">/* === 其他: perf, ftrace, audit, seccomp ... */</span>
+    <span class="kw">char</span> comm[TASK_COMM_LEN];     <span class="cm">// 进程名（最大 16 字节）</span>
+};</pre>
+
+<div class="callout deep">
+<div class="label">深入：线程是怎么实现的？</div>
+<p>Linux 的<b>线程就是共享 mm 的进程</b>。<code>pthread_create</code> 底层调用 <code>clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | ...)</code>，
+两个 <code>task_struct</code> 共享同一个 <code>mm_struct</code>，所以共用堆和全局变量。
+这就是 Linux "1:1 线程模型"。<code>tgid</code> 字段记录主线程 pid，<code>getpid()</code> 实际返回 tgid，<code>gettid()</code> 才返回真实 pid。</p>
+</div>
+
+<h2 id="state">3.3 进程状态机</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" font-size="12" font-family="-apple-system,sans-serif">
+<defs>
+  <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+  </marker>
+</defs>
+<text x="400" y="24" text-anchor="middle" font-size="16" font-weight="700" fill="#ff7b29">进程状态机</text>
+
+<g><rect x="320" y="50" width="160" height="50" rx="8" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+<text x="400" y="72" text-anchor="middle" fill="#56d364" font-weight="700">TASK_RUNNING (R)</text>
+<text x="400" y="90" text-anchor="middle" fill="#8b949e" font-size="10">就绪/正在运行</text></g>
+
+<g><rect x="60" y="180" width="180" height="50" rx="8" fill="#1a2028" stroke="#e3b341" stroke-width="2"/>
+<text x="150" y="202" text-anchor="middle" fill="#e3b341" font-weight="700">TASK_INTERRUPTIBLE (S)</text>
+<text x="150" y="220" text-anchor="middle" fill="#8b949e" font-size="10">可中断睡眠</text></g>
+
+<g><rect x="300" y="180" width="200" height="50" rx="8" fill="#1a2028" stroke="#f85149" stroke-width="2"/>
+<text x="400" y="202" text-anchor="middle" fill="#f85149" font-weight="700">TASK_UNINTERRUPTIBLE (D)</text>
+<text x="400" y="220" text-anchor="middle" fill="#8b949e" font-size="10">不可中断 (IO等待)</text></g>
+
+<g><rect x="560" y="180" width="180" height="50" rx="8" fill="#1a2028" stroke="#bc8cff" stroke-width="2"/>
+<text x="650" y="202" text-anchor="middle" fill="#bc8cff" font-weight="700">__TASK_STOPPED (T)</text>
+<text x="650" y="220" text-anchor="middle" fill="#8b949e" font-size="10">SIGSTOP / ptrace</text></g>
+
+<g><rect x="60" y="290" width="180" height="50" rx="8" fill="#1a2028" stroke="#8b949e" stroke-width="2"/>
+<text x="150" y="312" text-anchor="middle" fill="#8b949e" font-weight="700">EXIT_ZOMBIE (Z)</text>
+<text x="150" y="330" text-anchor="middle" fill="#8b949e" font-size="10">已退出待回收</text></g>
+
+<g><rect x="560" y="290" width="180" height="50" rx="8" fill="#1a2028" stroke="#8b949e" stroke-width="2"/>
+<text x="650" y="312" text-anchor="middle" fill="#8b949e" font-weight="700">EXIT_DEAD (X)</text>
+<text x="650" y="330" text-anchor="middle" fill="#8b949e" font-size="10">已被父回收</text></g>
+
+<path d="M340 100 Q 200 140 230 180" fill="none" stroke="#8b949e" marker-end="url(#ar3)"/>
+<text x="180" y="138" font-size="10" fill="#8b949e">等待事件 (read)</text>
+
+<path d="M230 180 Q 290 140 360 100" fill="none" stroke="#8b949e" marker-end="url(#ar3)"/>
+<text x="245" y="155" font-size="10" fill="#56d364">事件来了/信号</text>
+
+<path d="M400 100 L 400 180" fill="none" stroke="#8b949e" marker-end="url(#ar3)"/>
+<text x="410" y="140" font-size="10" fill="#8b949e">磁盘 IO</text>
+
+<path d="M460 100 Q 600 140 580 180" fill="none" stroke="#8b949e" marker-end="url(#ar3)"/>
+<text x="600" y="138" font-size="10" fill="#8b949e">SIGSTOP</text>
+
+<path d="M580 180 Q 620 140 470 100" fill="none" stroke="#8b949e" marker-end="url(#ar3)"/>
+<text x="568" y="158" font-size="10" fill="#56d364">SIGCONT</text>
+
+<path d="M340 100 L 200 290" fill="none" stroke="#f85149" marker-end="url(#ar3)"/>
+<text x="200" y="248" font-size="10" fill="#f85149">exit()</text>
+
+<path d="M240 315 L 560 315" fill="none" stroke="#8b949e" marker-end="url(#ar3)"/>
+<text x="400" y="305" text-anchor="middle" font-size="10" fill="#8b949e">父进程 wait()</text>
+</svg>
+<div class="caption">完整的进程状态转换。"D"状态进程无法 kill，常见于网络/磁盘卡死</div>
+</div>
+
+<h2 id="fork">3.4 fork() 源码剖析 — 现代版本</h2>
+
+<p>fork 的本质是<b>复制一个 task_struct</b>，然后通过 <b>Copy-on-Write</b> 共享物理页直到一方写入。</p>
+
+<pre class="code-c"><span class="cm">/* kernel/fork.c (简化版本) */</span>
+<span class="kw">SYSCALL_DEFINE0</span>(fork) {
+    <span class="kw">struct</span> kernel_clone_args args = {
+        .exit_signal = SIGCHLD,
+    };
+    <span class="kw">return</span> kernel_clone(&args);
+}
+
+pid_t <span class="fn">kernel_clone</span>(<span class="kw">struct</span> kernel_clone_args *args) {
+    <span class="kw">struct</span> task_struct *p;
+    pid_t pid;
+
+    <span class="cm">// 关键：copy_process 复制一份 task_struct</span>
+    p = <span class="fn">copy_process</span>(NULL, trace, NUMA_NO_NODE, args);
+    <span class="kw">if</span> (IS_ERR(p)) <span class="kw">return</span> PTR_ERR(p);
+
+    pid = pid_vnr(p->thread_pid);
+
+    <span class="cm">// 唤醒新进程 → 进入运行队列</span>
+    <span class="fn">wake_up_new_task</span>(p);
+
+    <span class="cm">// CLONE_VFORK 时父进程阻塞等待</span>
+    <span class="kw">if</span> (args->flags & CLONE_VFORK)
+        <span class="fn">wait_for_vfork_done</span>(p, &vfork);
+
+    <span class="kw">return</span> pid;       <span class="cm">// 父进程返回子 pid</span>
+}
+
+<span class="kw">struct</span> task_struct *<span class="fn">copy_process</span>(...) {
+    <span class="kw">struct</span> task_struct *p = <span class="fn">dup_task_struct</span>(current, node);  <span class="cm">// 1. 复制结构体</span>
+    
+    <span class="fn">copy_creds</span>(p, clone_flags);    <span class="cm">// 2. 复制凭证</span>
+    <span class="fn">copy_files</span>(clone_flags, p);   <span class="cm">// 3. 复制文件描述符表</span>
+    <span class="fn">copy_fs</span>(clone_flags, p);      <span class="cm">// 4. 复制根目录信息</span>
+    <span class="fn">copy_sighand</span>(clone_flags, p); <span class="cm">// 5. 复制信号处理</span>
+    <span class="fn">copy_mm</span>(clone_flags, p);      <span class="cm">// 6. 关键!复制 mm_struct (CoW 在此触发)</span>
+    <span class="fn">copy_namespaces</span>(clone_flags, p);
+    <span class="fn">copy_thread</span>(p, args);         <span class="cm">// 7. 设置子进程的"返回点"</span>
+
+    <span class="fn">sched_cgroup_fork</span>(p, args);
+    <span class="kw">return</span> p;
+}</pre>
+
+<h3>copy_mm — CoW 的核心</h3>
+
+<pre class="code-c"><span class="kw">static int</span> <span class="fn">copy_mm</span>(<span class="kw">unsigned long</span> clone_flags, <span class="kw">struct</span> task_struct *tsk) {
+    <span class="kw">if</span> (clone_flags & CLONE_VM) {       <span class="cm">// 线程：共享 mm</span>
+        mmget(oldmm);
+        mm = oldmm;
+    } <span class="kw">else</span> {                              <span class="cm">// 进程：复制 mm</span>
+        mm = <span class="fn">dup_mm</span>(tsk, current->mm); <span class="cm">// → dup_mmap → 复制 VMA 链表</span>
+    }                                       <span class="cm">// 注意：物理页表项设为只读，CoW 触发缺页</span>
+    tsk->mm = mm;
+    tsk->active_mm = mm;
+    <span class="kw">return</span> <span class="num">0</span>;
+}
+
+<span class="cm">/* CoW 触发：写只读页 → 缺页异常 → do_wp_page() */</span>
+<span class="kw">static</span> vm_fault_t <span class="fn">do_wp_page</span>(<span class="kw">struct</span> vm_fault *vmf) {
+    <span class="kw">struct</span> page *page = vm_normal_page(...);
+    <span class="kw">if</span> (page_count(page) == 1) {        <span class="cm">// 独占？直接改为可写</span>
+        set_pte(vmf->pte, pte_mkwrite(pte));
+    } <span class="kw">else</span> {                              <span class="cm">// 共享？分配新页拷贝</span>
+        new_page = alloc_page(...);
+        copy_user_highpage(new_page, page, address);
+        set_pte(vmf->pte, mk_pte(new_page, PROT_WRITE));
+    }
+}
+</pre>
+
+<h2 id="011fork">3.5 对照：Linux 0.11 的 fork（极简版）</h2>
+
+<pre class="code-c"><span class="cm">/* linux-0.11/kernel/fork.c */</span>
+<span class="kw">int</span> <span class="fn">copy_process</span>(<span class="kw">int</span> nr, <span class="kw">long</span> ebp, ... <span class="cm">/* 所有寄存器 */</span>) {
+    <span class="kw">struct</span> task_struct *p;
+
+    p = (<span class="kw">struct</span> task_struct *) <span class="fn">get_free_page</span>();  <span class="cm">// 分配一页存 task_struct</span>
+    <span class="kw">if</span> (!p) <span class="kw">return</span> -EAGAIN;
+    task[nr] = p;
+    *p = *current;          <span class="cm">// 结构体拷贝!</span>
+    p->state = TASK_UNINTERRUPTIBLE;
+    p->pid = last_pid;
+    p->father = current->pid;
+    p->counter = p->priority;
+    p->utime = p->stime = <span class="num">0</span>;
+
+    <span class="cm">// 关键：设置 TSS (硬件任务切换)</span>
+    p->tss.esp = esp;
+    p->tss.eip = eip;       <span class="cm">// 子进程从这里继续 → 返回 0</span>
+    p->tss.eflags = eflags;
+    p->tss.eax = <span class="num">0</span>;          <span class="cm">// 子进程 fork() 返回 0 的实现!</span>
+
+    <span class="fn">copy_mem</span>(nr, p);        <span class="cm">// 复制段（0.11 是段页式）</span>
+
+    p->state = TASK_RUNNING;
+    <span class="kw">return</span> last_pid;        <span class="cm">// 父进程返回子 pid</span>
+}</pre>
+
+<div class="callout tip">
+<div class="label">"fork 返回两次" 的真相</div>
+<p>fork 只<b>调用了一次</b>，但<b>返回了两次</b>。父进程返回路径正常出栈；子进程被构造时，
+<code>tss.eip</code> 被设成 fork 系统调用即将返回的地址，<code>tss.eax = 0</code>（x86 上系统调用返回值放 eax）。
+当调度器选中子进程，CPU 恢复其 TSS，rip 跳到 fork "出口"，eax=0，于是用户态看到 <code>fork() == 0</code>。</p>
+</div>
+
+<h2 id="ctxsw">3.6 上下文切换 — switch_to</h2>
+
+<pre class="code-c"><span class="cm">/* kernel/sched/core.c */</span>
+<span class="kw">static</span> __always_inline <span class="kw">struct</span> rq *
+<span class="fn">context_switch</span>(<span class="kw">struct</span> rq *rq, <span class="kw">struct</span> task_struct *prev,
+               <span class="kw">struct</span> task_struct *next, <span class="kw">struct</span> rq_flags *rf) {
+    <span class="cm">// 1. 切换地址空间 (CR3)</span>
+    <span class="kw">if</span> (next->mm)
+        switch_mm_irqs_off(prev->active_mm, next->mm, next);
+    <span class="kw">else</span> {                          <span class="cm">// 内核线程"借用"prev 的 mm，避免切 CR3</span>
+        next->active_mm = prev->active_mm;
+        mmgrab(prev->active_mm);
+    }
+
+    <span class="cm">// 2. 切换寄存器（含栈指针）→ 真正的"换上下文"</span>
+    switch_to(prev, next, prev);
+    <span class="cm">// !!! 这之后 prev 的本函数不会立刻返回，</span>
+    <span class="cm">//      要等 next 再被切回来才继续 !!!</span>
+
+    barrier();
+    <span class="kw">return</span> <span class="fn">finish_task_switch</span>(prev);
+}
+
+<span class="cm">/* arch/x86/include/asm/switch_to.h */</span>
+<span class="kw">#define</span> switch_to(prev, next, last)             \
+do {                                                  \
+    ((last) = <span class="fn">__switch_to_asm</span>((prev), (next))); \
+} <span class="kw">while</span> (<span class="num">0</span>)
+</pre>
+
+<pre class="code-asm"><span class="cm">; arch/x86/entry/entry_64.S — __switch_to_asm</span>
+SYM_FUNC_START(__switch_to_asm)
+    pushq %rbp           <span class="cm">; 保存当前进程的 callee-saved 寄存器</span>
+    pushq %rbx
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    movq  %rsp, TASK_threadsp(%rdi)   <span class="cm">; prev->thread.sp = rsp ← 关键!</span>
+    movq  TASK_threadsp(%rsi), %rsp   <span class="cm">; rsp = next->thread.sp  ← 栈切了!</span>
+    popq  %r15           <span class="cm">; 恢复 next 的寄存器</span>
+    popq  %r14
+    popq  %r13
+    popq  %r12
+    popq  %rbx
+    popq  %rbp
+    jmp   __switch_to    <span class="cm">; C 函数完成 FPU、TLS 等切换</span>
+SYM_FUNC_END(__switch_to_asm)
+</pre>
+
+<div class="callout warn">
+<div class="label">理解上下文切换的关键</div>
+<p><b>"切换"二字的本质就两件事：</b></p>
+<ol>
+<li><b>切栈</b>：<code>rsp</code> 从 prev 的内核栈指向 next 的内核栈</li>
+<li><b>切地址空间</b>：CR3 寄存器指向 next 的 pgd（如果 next 是用户进程）</li>
+</ol>
+<p>切完之后 <code>ret</code> 弹出的是 next 上次被切走时的返回地址，于是 next 从它当时"被打断"的地方继续。</p>
+</div>
+
+<h2 id="sched">3.7 调度器演化</h2>
+
+<table>
+<tr><th>版本</th><th>调度器</th><th>核心数据结构</th><th>选下一个进程的复杂度</th></tr>
+<tr><td>0.11</td><td>简单时间片</td><td>固定 64 项 task[] 数组</td><td>O(n) 遍历</td></tr>
+<tr><td>2.4</td><td>O(n)</td><td>双向链表 runqueue</td><td>O(n)</td></tr>
+<tr><td>2.6.0~2.6.22</td><td>O(1)</td><td>140 个优先级链表 × 2 (active/expired)</td><td>O(1)</td></tr>
+<tr><td>2.6.23+</td><td><b>CFS</b></td><td>红黑树按 vruntime 排序</td><td>O(log n)</td></tr>
+<tr><td>4.x+</td><td>CFS + 调度类</td><td>+ RT、Deadline、Idle 调度类</td><td>O(log n)</td></tr>
+</table>
+
+<p>CFS 是当前默认调度器，是<a href="../10-CFS调度器/index.html">第 10 章</a>的主题。</p>
+
+<h2 id="experiment">3.8 动手实验</h2>
+
+<pre class="code-bash"><span class="cm"># 实验 1：观察 task_struct 切换</span>
+<span class="cm"># /sys/kernel/debug/tracing/ 下打开调度事件</span>
+echo <span class="num">1</span> > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
+echo <span class="num">1</span> > /sys/kernel/debug/tracing/tracing_on
+cat /sys/kernel/debug/tracing/trace_pipe
+
+<span class="cm"># 实验 2：GDB 单步走完 fork</span>
+<span class="cm">(gdb) hbreak kernel_clone</span>
+<span class="cm">(gdb) c</span>
+<span class="cm">(gdb) n      # 一步步过 copy_process</span>
+
+<span class="cm"># 实验 3：观察 CoW</span>
+echo <span class="num">1</span> > /proc/sys/vm/swappiness
+<span class="cm"># 写一个 fork() 后立刻 sleep 的程序，对比 /proc/self/status 的 RssAnon</span>
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../02-环境搭建/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../04-内存管理/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

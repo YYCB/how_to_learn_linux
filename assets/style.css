@@ -1,0 +1,460 @@
+/* ============================================================
+   Linux Kernel Learning Guide — Stylesheet
+   一份用于专家级 Linux 内核学习网站的样式
+   ============================================================ */
+
+:root {
+    --bg: #0f1419;
+    --bg-elev: #1a2028;
+    --bg-code: #11171f;
+    --fg: #e6edf3;
+    --fg-muted: #8b949e;
+    --accent: #ff7b29;       /* Tux 橙 */
+    --accent-soft: rgba(255, 123, 41, 0.15);
+    --accent-2: #58a6ff;     /* Linux 蓝 */
+    --green: #56d364;
+    --red: #f85149;
+    --yellow: #e3b341;
+    --purple: #bc8cff;
+    --border: #30363d;
+    --border-soft: #21262d;
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    --radius: 8px;
+    --radius-sm: 4px;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg: #ffffff;
+        --bg-elev: #f6f8fa;
+        --bg-code: #f6f8fa;
+        --fg: #1f2328;
+        --fg-muted: #656d76;
+        --accent: #d96714;
+        --accent-soft: rgba(217, 103, 20, 0.1);
+        --accent-2: #0969da;
+        --green: #1a7f37;
+        --red: #cf222e;
+        --yellow: #9a6700;
+        --purple: #8250df;
+        --border: #d0d7de;
+        --border-soft: #eaeef2;
+        --shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+    }
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Layout ─────────────────────────────────────────── */
+.layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+}
+
+.sidebar {
+    background: var(--bg-elev);
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 14px;
+}
+
+.sidebar .brand {
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--accent);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sidebar .brand-sub {
+    font-size: 12px;
+    color: var(--fg-muted);
+    margin-bottom: 20px;
+}
+
+.sidebar nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 16px 0;
+}
+
+.sidebar nav li { margin: 2px 0; }
+
+.sidebar nav a {
+    display: block;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    color: var(--fg-muted);
+    text-decoration: none;
+    transition: all 0.15s ease;
+}
+
+.sidebar nav a:hover,
+.sidebar nav a.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.sidebar nav .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    margin: 18px 12px 6px;
+    font-weight: 700;
+}
+
+.content {
+    padding: 48px 64px;
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: relative; height: auto; }
+    .content { padding: 24px; }
+}
+
+/* ─── Typography ─────────────────────────────────────── */
+h1, h2, h3, h4 {
+    color: var(--fg);
+    font-weight: 700;
+    line-height: 1.3;
+    margin-top: 1.8em;
+    margin-bottom: 0.6em;
+}
+
+h1 {
+    font-size: 2.2em;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 12px;
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+h1 .chapter-num {
+    background: var(--accent);
+    color: white;
+    padding: 4px 12px;
+    border-radius: var(--radius);
+    font-size: 0.6em;
+}
+
+h2 {
+    font-size: 1.6em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+}
+
+h3 { font-size: 1.25em; color: var(--accent-2); }
+h4 { font-size: 1.05em; color: var(--accent); }
+
+p { margin: 0.8em 0; }
+a { color: var(--accent-2); }
+a:hover { text-decoration: underline; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ─── Code ─────────────────────────────────────────── */
+code {
+    font-family: var(--mono);
+    background: var(--bg-code);
+    border: 1px solid var(--border-soft);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.88em;
+    color: var(--accent);
+}
+
+pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 14px;
+    margin: 16px 0;
+    position: relative;
+}
+
+pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--fg);
+}
+
+pre.code-c::before,
+pre.code-asm::before,
+pre.code-bash::before {
+    position: absolute;
+    top: 0;
+    right: 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--fg-muted);
+    padding: 4px 8px;
+}
+pre.code-c::before { content: "C"; }
+pre.code-asm::before { content: "ASM"; }
+pre.code-bash::before { content: "BASH"; }
+
+/* Syntax-like coloring (manual spans) */
+.kw   { color: var(--purple); }   /* keyword */
+.fn   { color: var(--accent-2); } /* function */
+.str  { color: var(--green); }    /* string */
+.num  { color: var(--yellow); }   /* number */
+.cm   { color: var(--fg-muted); font-style: italic; } /* comment */
+.tp   { color: var(--accent); }   /* type */
+
+/* ─── Tables ─────────────────────────────────────────── */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.95em;
+}
+
+th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+th {
+    background: var(--bg-elev);
+    color: var(--accent);
+    font-weight: 700;
+    border-bottom: 2px solid var(--border);
+}
+
+tr:hover td { background: var(--accent-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+    tr:hover td { background: transparent; }
+}
+
+/* ─── Callout boxes ─────────────────────────────────── */
+.callout {
+    border-left: 4px solid var(--accent-2);
+    background: var(--bg-elev);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin: 20px 0;
+    box-shadow: var(--shadow);
+}
+
+.callout.tip    { border-left-color: var(--green); }
+.callout.warn   { border-left-color: var(--yellow); }
+.callout.danger { border-left-color: var(--red); }
+.callout.deep   { border-left-color: var(--purple); }
+
+.callout .label {
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.callout.tip .label    { color: var(--green); }
+.callout.warn .label   { color: var(--yellow); }
+.callout.danger .label { color: var(--red); }
+.callout.deep .label   { color: var(--purple); }
+.callout .label::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor; display: inline-block;
+}
+
+/* ─── Cards (used on index) ─────────────────────────── */
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
+}
+
+.card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    color: var(--fg);
+    display: block;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+    box-shadow: var(--shadow);
+    text-decoration: none;
+}
+
+.card .num {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+}
+
+.card .title {
+    font-weight: 700;
+    font-size: 18px;
+    margin: 6px 0;
+    color: var(--fg);
+}
+
+.card .desc {
+    color: var(--fg-muted);
+    font-size: 14px;
+    margin: 0;
+}
+
+/* ─── SVG diagrams ─────────────────────────────────── */
+.diagram {
+    margin: 24px auto;
+    text-align: center;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    overflow-x: auto;
+}
+
+.diagram svg { max-width: 100%; height: auto; }
+
+.diagram .caption {
+    margin-top: 12px;
+    color: var(--fg-muted);
+    font-size: 14px;
+    font-style: italic;
+}
+
+/* ─── Tabs ─────────────────────────────────────────── */
+.tabs {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 16px 0;
+    overflow: hidden;
+}
+
+.tab-headers {
+    display: flex;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+}
+
+.tab-headers button {
+    background: transparent;
+    border: none;
+    color: var(--fg-muted);
+    padding: 10px 18px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+
+.tab-headers button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.tab-body { padding: 20px; }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ─── Footer ─────────────────────────────────────── */
+footer.page-footer {
+    margin-top: 60px;
+    padding: 24px 0;
+    border-top: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+/* ─── Anchor links on headings ─────────────────────── */
+h2[id], h3[id] {
+    scroll-margin-top: 24px;
+}
+
+/* ─── Reading list ─────────────────────────────────── */
+.book-list {
+    list-style: none;
+    padding: 0;
+}
+
+.book-list li {
+    padding: 12px 16px;
+    margin: 8px 0;
+    background: var(--bg-elev);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+}
+
+.book-list .title { font-weight: 700; color: var(--fg); }
+.book-list .author { color: var(--fg-muted); font-size: 0.9em; }
+.book-list .why { font-size: 0.9em; margin-top: 4px; color: var(--fg-muted); }
+
+/* ─── Two-column compare ─────────────────────────── */
+.compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+}
+
+.compare > div {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+}
+
+.compare h4 { margin-top: 0; }
+
+@media (max-width: 700px) {
+    .compare { grid-template-columns: 1fr; }
+}
+
+/* Print */
+@media print {
+    .sidebar { display: none; }
+    .layout { grid-template-columns: 1fr; }
+    pre, .diagram { page-break-inside: avoid; }
+}

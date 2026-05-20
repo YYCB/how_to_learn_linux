@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>00 · 学习路线 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html" class="active">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+<main class="content">
+
+<h1><span class="chapter-num">00</span>学习路线 — 从零到专家</h1>
+
+<p>这是一条经过实战验证的<b>5 阶段路线</b>，覆盖从 C 语言基础到能够提交 LKML patch 的全部技能点。
+每阶段都给出明确的<b>知识检验点</b>，避免"自我感觉良好但其实不会"的陷阱。</p>
+
+<div class="callout tip">
+    <div class="label">本路线的核心信念</div>
+    <p>内核学习的最大误区是<b>"只读不练"</b>。本路线强制要求：每读完一个概念，必须在 QEMU + GDB 中亲自验证。
+    没有动手验证的"理解"都是错觉。</p>
+</div>
+
+<h2 id="overview">总览：5 个阶段</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" font-family="-apple-system,sans-serif" font-size="13">
+  <defs>
+    <marker id="aar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+  <g>
+    <rect x="20" y="60" width="150" height="100" rx="8" fill="#1a2028" stroke="#58a6ff" stroke-width="2"/>
+    <text x="95" y="84" text-anchor="middle" fill="#58a6ff" font-weight="700">阶段一</text>
+    <text x="95" y="104" text-anchor="middle" fill="#e6edf3" font-size="12">基础准备</text>
+    <text x="95" y="124" text-anchor="middle" fill="#8b949e" font-size="11">4~6 周</text>
+    <text x="95" y="144" text-anchor="middle" fill="#8b949e" font-size="10">C / OS / 工具链</text>
+
+    <line x1="170" y1="110" x2="200" y2="110" stroke="#8b949e" stroke-width="2" marker-end="url(#aar)"/>
+
+    <rect x="200" y="60" width="150" height="100" rx="8" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+    <text x="275" y="84" text-anchor="middle" fill="#ff7b29" font-weight="700">阶段二</text>
+    <text x="275" y="104" text-anchor="middle" fill="#e6edf3" font-size="12">Linux 0.11 精读</text>
+    <text x="275" y="124" text-anchor="middle" fill="#8b949e" font-size="11">8~12 周</text>
+    <text x="275" y="144" text-anchor="middle" fill="#8b949e" font-size="10">14k 行完整读完</text>
+
+    <line x1="350" y1="110" x2="380" y2="110" stroke="#8b949e" stroke-width="2" marker-end="url(#aar)"/>
+
+    <rect x="380" y="60" width="150" height="100" rx="8" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+    <text x="455" y="84" text-anchor="middle" fill="#56d364" font-weight="700">阶段三</text>
+    <text x="455" y="104" text-anchor="middle" fill="#e6edf3" font-size="12">Linux 2.6 精读</text>
+    <text x="455" y="124" text-anchor="middle" fill="#8b949e" font-size="11">8~12 周</text>
+    <text x="455" y="144" text-anchor="middle" fill="#8b949e" font-size="10">现代框架对照</text>
+
+    <line x1="530" y1="110" x2="560" y2="110" stroke="#8b949e" stroke-width="2" marker-end="url(#aar)"/>
+
+    <rect x="560" y="60" width="150" height="100" rx="8" fill="#1a2028" stroke="#bc8cff" stroke-width="2"/>
+    <text x="635" y="84" text-anchor="middle" fill="#bc8cff" font-weight="700">阶段四</text>
+    <text x="635" y="104" text-anchor="middle" fill="#e6edf3" font-size="12">专题深入</text>
+    <text x="635" y="124" text-anchor="middle" fill="#8b949e" font-size="11">10~16 周</text>
+    <text x="635" y="144" text-anchor="middle" fill="#8b949e" font-size="10">CFS/eBPF/容器</text>
+
+    <line x1="710" y1="110" x2="740" y2="110" stroke="#8b949e" stroke-width="2" marker-end="url(#aar)"/>
+
+    <rect x="740" y="60" width="150" height="100" rx="8" fill="#1a2028" stroke="#e3b341" stroke-width="2"/>
+    <text x="815" y="84" text-anchor="middle" fill="#e3b341" font-weight="700">阶段五</text>
+    <text x="815" y="104" text-anchor="middle" fill="#e6edf3" font-size="12">贡献社区</text>
+    <text x="815" y="124" text-anchor="middle" fill="#8b949e" font-size="11">持续</text>
+    <text x="815" y="144" text-anchor="middle" fill="#8b949e" font-size="10">提交 patch / 维护</text>
+  </g>
+  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="#ff7b29">完整学习路线 (总计约 8~12 个月)</text>
+</svg>
+<div class="caption">5 阶段渐进式学习路线（不含已有 C/OS 基础的快速通道）</div>
+</div>
+
+<h2 id="stage1">阶段一：基础准备（4~6 周）</h2>
+
+<h3>1.1 C 语言深度</h3>
+<p>内核 C 与应用层 C 写法差异巨大，必须掌握以下"内核惯用法"：</p>
+
+<pre class="code-c"><span class="cm">/* 1. container_of — 通过成员指针得到结构体指针（链表精髓） */</span>
+<span class="kw">#define</span> container_of(ptr, type, member) ({          \
+    <span class="kw">const</span> <span class="tp">typeof</span>(((type *)<span class="num">0</span>)->member) *__mptr = (ptr); \
+    (type *)((<span class="kw">char</span> *)__mptr - offsetof(type, member)); })
+
+<span class="cm">/* 2. 多行宏的 do {} while(0) 包裹技巧 */</span>
+<span class="kw">#define</span> SET_FLAG(x, f) <span class="kw">do</span> { (x)->flags |= (f); barrier(); } <span class="kw">while</span>(<span class="num">0</span>)
+
+<span class="cm">/* 3. likely/unlikely — 分支预测提示 */</span>
+<span class="kw">if</span> (likely(p != <span class="kw">NULL</span>)) { ... }     <span class="cm">// 编译器生成顺序流</span>
+<span class="kw">if</span> (unlikely(err == -EINVAL)) { ... } <span class="cm">// 编译器把错误路径搬远</span>
+
+<span class="cm">/* 4. 内联汇编 (GCC AT&T 语法) */</span>
+<span class="kw">static inline</span> <span class="kw">unsigned long</span> arch_local_irq_save(<span class="kw">void</span>) {
+    <span class="kw">unsigned long</span> flags;
+    asm <span class="kw">volatile</span>(<span class="str">"pushfq; popq %0; cli"</span> : <span class="str">"=rm"</span>(flags) :: <span class="str">"memory"</span>);
+    <span class="kw">return</span> flags;
+}
+
+<span class="cm">/* 5. __attribute__ 修饰符 */</span>
+<span class="kw">static</span> <span class="kw">int</span> <span class="fn">__init</span> my_init(<span class="kw">void</span>);   <span class="cm">// 放入 .init 段，启动后释放</span>
+<span class="kw">static</span> <span class="kw">void</span> <span class="fn">__exit</span> my_exit(<span class="kw">void</span>);   <span class="cm">// 仅模块卸载时使用</span>
+<span class="kw">static</span> <span class="kw">int</span> data __read_mostly;     <span class="cm">// 放入"读多"段，cacheline 友好</span>
+</pre>
+
+<div class="callout warn">
+    <div class="label">必须熟练（否则读源码处处碰壁）</div>
+    <ul>
+        <li>指针、函数指针、回调（`file_operations.read` 就是函数指针）</li>
+        <li>位操作 / 位字段 / 掩码</li>
+        <li>预处理宏（`#`、`##`、可变参宏）</li>
+        <li>GCC 扩展：`typeof`、`__builtin_*`、内联汇编</li>
+        <li>链接脚本基础（`vmlinux.lds` 看不懂没关系，但要知道存在）</li>
+    </ul>
+</div>
+
+<h3>1.2 操作系统理论</h3>
+<p>无 OS 基础者必先补这些<b>概念</b>（不必精通，能画出框图即可）：</p>
+
+<table>
+<tr><th>主题</th><th>必懂概念</th><th>检验方法</th></tr>
+<tr><td>进程/线程</td><td>PCB、状态机、上下文切换、线程模型</td><td>用一张图说清楚 fork/exec/wait</td></tr>
+<tr><td>调度</td><td>FIFO、RR、CFS 直觉理解</td><td>解释为什么 CFS 比 O(1) 好</td></tr>
+<tr><td>虚拟内存</td><td>分页、页表、TLB、缺页中断</td><td>画出虚拟地址→物理地址</td></tr>
+<tr><td>并发</td><td>临界区、锁、死锁、原子操作</td><td>写出死锁的 4 个必要条件</td></tr>
+<tr><td>文件系统</td><td>inode、目录、VFS 抽象</td><td>解释一次 read() 全过程</td></tr>
+<tr><td>IO</td><td>阻塞 vs 非阻塞、同步 vs 异步</td><td>区分 select/poll/epoll/io_uring</td></tr>
+<tr><td>中断</td><td>中断向量、上下半部、IRQ</td><td>解释为什么不能在中断里 sleep</td></tr>
+</table>
+
+<h3>1.3 工具链熟悉</h3>
+<p>下面这些工具是"读 + 写 + 调试 + 分析"内核的必备品：</p>
+
+<pre class="code-bash">
+<span class="cm"># 编译与链接</span>
+gcc / clang          <span class="cm"># 编译</span>
+ld                   <span class="cm"># 链接</span>
+objdump -d           <span class="cm"># 反汇编</span>
+readelf -a           <span class="cm"># ELF 结构分析</span>
+nm / addr2line       <span class="cm"># 符号 ↔ 地址转换</span>
+
+<span class="cm"># 调试</span>
+gdb / kgdb           <span class="cm"># 内核态调试</span>
+crash                <span class="cm"># 崩溃 dump 分析</span>
+strace / ltrace      <span class="cm"># 用户态系统调用 / 库调用追踪</span>
+
+<span class="cm"># 性能</span>
+perf record / report <span class="cm"># 性能采样</span>
+ftrace               <span class="cm"># 内核函数追踪</span>
+bpftrace / bcc       <span class="cm"># eBPF 高层工具</span>
+
+<span class="cm"># 构建</span>
+make menuconfig      <span class="cm"># 内核配置 TUI</span>
+make -j$(nproc)      <span class="cm"># 并行构建</span>
+</pre>
+
+<h2 id="stage2">阶段二：Linux 0.11 精读（8~12 周）</h2>
+
+<div class="callout deep">
+    <div class="label">为什么选 0.11 而不是 0.01？</div>
+    <p>0.01 是<b>不完整的</b>实验代码（连 shell 都跑不起来），0.11 是<b>第一个能完整运行用户程序、自我托管编译的版本</b>。
+    13990 行（不含注释），既小到可以完整读完，又大到包含所有 OS 核心概念。</p>
+</div>
+
+<h3>8 周精读计划</h3>
+<table>
+<tr><th>周次</th><th>主题</th><th>对应源文件</th><th>本周末检验：能否……</th></tr>
+<tr><td>第 1 周</td><td>启动流程</td><td>boot/bootsect.s, boot/setup.s, boot/head.s</td><td>解释 BIOS → 实模式 → 保护模式 → C 入口的每一跳？</td></tr>
+<tr><td>第 2 周</td><td>内核初始化</td><td>init/main.c</td><td>列出 start_kernel 中所有子系统的初始化顺序？</td></tr>
+<tr><td>第 3 周</td><td>内存管理</td><td>mm/memory.c, mm/page.s</td><td>从 0 开始画出 0.11 的段页式地址转换？</td></tr>
+<tr><td>第 4 周</td><td>进程与调度</td><td>kernel/fork.c, kernel/sched.c</td><td>把 copy_process 的每一步背下来？</td></tr>
+<tr><td>第 5 周</td><td>系统调用</td><td>kernel/system_call.s, kernel/sys.c</td><td>从 int 0x80 一路追到 sys_write 返回？</td></tr>
+<tr><td>第 6 周</td><td>信号与 IPC</td><td>kernel/signal.c, kernel/exit.c</td><td>说清 zombie 进程是怎么形成又怎么消失的？</td></tr>
+<tr><td>第 7 周</td><td>文件系统</td><td>fs/* 全部</td><td>从打开 /etc/passwd 一路追到磁盘块？</td></tr>
+<tr><td>第 8 周</td><td>设备驱动</td><td>kernel/blk_drv/, kernel/chr_drv/</td><td>解释 tty 行规范怎么处理回车？</td></tr>
+</table>
+
+<h2 id="stage3">阶段三：Linux 2.6 精读（8~12 周）</h2>
+<p>2.6.0 是现代内核框架成型的<b>里程碑版本</b>。读 2.6 时<b>重点关注差异</b>，不要重读已懂的部分。</p>
+
+<h3>0.11 → 2.6 对照学习</h3>
+<div class="compare">
+    <div>
+        <h4 style="color: var(--accent-2)">Linux 0.11 (已读)</h4>
+        <ul>
+            <li>段页式内存 (基址 = pid × 64MB)</li>
+            <li>kernel/sched.c 简单时间片</li>
+            <li>fs/ 直接是 Minix FS</li>
+            <li>无 SMP，关中断即同步</li>
+            <li>固定 64 进程上限</li>
+        </ul>
+    </div>
+    <div>
+        <h4 style="color: var(--accent)">Linux 2.6.0 (重点)</h4>
+        <ul>
+            <li>纯页式 + mm_struct + VMA</li>
+            <li>kernel/sched.c <b>O(1)</b> 调度器</li>
+            <li>fs/ext2 + VFS 抽象层</li>
+            <li>SMP + spinlock/mutex/RCU</li>
+            <li>动态进程表 + namespace 雏形</li>
+        </ul>
+    </div>
+</div>
+
+<h2 id="stage4">阶段四：专家级专题（10~16 周）</h2>
+<p>不再线性阅读，按兴趣专题深入。本指南后半段（10~15 章）即为此阶段服务：</p>
+
+<ul>
+    <li><a href="../10-CFS调度器/index.html">CFS 调度器</a>：vruntime、负载均衡、EAS</li>
+    <li><a href="../11-容器与命名空间/index.html">容器内核机制</a>：namespace、cgroup v2、OverlayFS</li>
+    <li><a href="../12-eBPF与可观测性/index.html">eBPF</a>：现代内核可编程性</li>
+    <li><a href="../13-中断与异常/index.html">中断子系统</a>：IRQ、softirq、threaded IRQ</li>
+    <li><a href="../14-启动流程深入/index.html">启动流程深入</a>：UEFI、KASLR、ACPI</li>
+    <li><a href="../15-内核调试与性能/index.html">调试与性能</a>：ftrace、perf、KASAN</li>
+</ul>
+
+<h2 id="stage5">阶段五：贡献社区</h2>
+
+<h3>5.1 找一个突破口</h3>
+<p>不要一上来就想"修复某个大 bug"。从这些低门槛切入：</p>
+<ul>
+    <li><b>kernelnewbies.org / KernelJanitors</b>：有专门的入门 issue 列表</li>
+    <li><b>修复 checkpatch.pl 警告</b>：纯文本编辑，提交容易</li>
+    <li><b>文档错别字 / 过时信息</b>：低风险</li>
+    <li><b>把过时的 API 调用迁移到新 API</b>：机械工作，欢迎度高</li>
+</ul>
+
+<h3>5.2 邮件 patch 流程</h3>
+<pre class="code-bash">
+<span class="cm"># 1. 配置 git</span>
+git config --global user.name <span class="str">"Your Name"</span>
+git config --global user.email <span class="str">"you@example.com"</span>
+git config --global sendemail.smtpencryption tls
+git config --global sendemail.smtpserver smtp.gmail.com
+git config --global sendemail.smtpuser <span class="str">"you@gmail.com"</span>
+
+<span class="cm"># 2. 创建 patch</span>
+git format-patch -1 HEAD --subject-prefix=<span class="str">"PATCH"</span>
+
+<span class="cm"># 3. 找该子系统的 maintainer 和邮件列表</span>
+./scripts/get_maintainer.pl 0001-my-patch.patch
+
+<span class="cm"># 4. 发送</span>
+git send-email --to=maintainer@kernel.org \
+               --cc=linux-kernel@vger.kernel.org \
+               0001-my-patch.patch
+</pre>
+
+<h2 id="daily">每日学习节奏（推荐）</h2>
+<div class="callout tip">
+    <div class="label">2~3 小时/天的高效安排</div>
+    <ol>
+        <li><b>0:00 ~ 0:20</b> — 复习昨天笔记，3 分钟内能讲出"昨天学了啥"</li>
+        <li><b>0:20 ~ 1:30</b> — 精读源码（<b>不超过 200 行/天</b>，多了消化不动）</li>
+        <li><b>1:30 ~ 2:00</b> — 画图：当天阅读涉及的数据结构、流程图</li>
+        <li><b>2:00 ~ 2:30</b> — 在 QEMU 中验证（设断点、打印变量）</li>
+        <li><b>2:30 ~ 3:00</b> — 整理笔记（用自己的话复述）</li>
+    </ol>
+</div>
+
+<div class="callout danger">
+    <div class="label">三大常见误区</div>
+    <ol>
+        <li><b>"只读不练"</b>：读完 100 章不如调试明白一个函数</li>
+        <li><b>"追新版"</b>：直接读 6.x 内核 90% 概率挫败放弃，从 0.11 开始</li>
+        <li><b>"东学西学"</b>：今天 fork 明天 TCP 后天驱动，必须按子系统专精</li>
+    </ol>
+</div>
+
+<footer class="page-footer">
+    <p>← <a href="../index.html">总目录</a> · 下一章：<a href="../01-经典版本选择/index.html">01 经典版本选择 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

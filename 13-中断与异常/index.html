@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>13 · 中断与异常子系统 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html" class="active">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">13</span>中断与异常子系统</h1>
+
+
+<p>中断是<b>CPU 与外界沟通的唯一异步通道</b>。本章从硬件中断向量讲到 threaded IRQ、IPI、softirq 全套机制。</p>
+
+<h2 id="why">13.1 为什么有中断</h2>
+
+<p>没中断 → CPU 必须<b>轮询</b>外设是否就绪 → 99% 时间浪费。中断让 CPU 在外设事件发生时<b>被动接到通知</b>，期间可以做别的事。</p>
+
+<h2 id="vector">13.2 中断向量与 IDT (x86)</h2>
+
+<table>
+<tr><th>向量号</th><th>类型</th><th>例子</th></tr>
+<tr><td>0~31</td><td><b>异常</b> (内部)</td><td>0=DIV/0, 6=#UD, 13=#GP, 14=#PF</td></tr>
+<tr><td>32~47</td><td>传统 IRQ (PIC)</td><td>32=timer, 33=keyboard</td></tr>
+<tr><td>32~255</td><td>APIC / MSI</td><td>现代 PCI 设备动态分配</td></tr>
+<tr><td>0x80</td><td>软中断 (老)</td><td>int 0x80 = 系统调用 (i386)</td></tr>
+<tr><td>NMI</td><td>不可屏蔽</td><td>看门狗、硬件错误</td></tr>
+</table>
+
+<pre class="code-c"><span class="cm">/* arch/x86/kernel/idt.c — IDT 表项 */</span>
+<span class="kw">static const</span> __initconst <span class="kw">struct</span> idt_data def_idts[] = {
+    INTG(X86_TRAP_DE,    asm_exc_divide_error),     <span class="cm">// vec 0</span>
+    INTG(X86_TRAP_DB,    asm_exc_debug),            <span class="cm">// vec 1</span>
+    INTG(X86_TRAP_BP,    asm_exc_int3),             <span class="cm">// vec 3 (int3 断点)</span>
+    INTG(X86_TRAP_PF,    asm_exc_page_fault),       <span class="cm">// vec 14 缺页</span>
+    INTG(X86_TRAP_GP,    asm_exc_general_protection),
+    <span class="cm">/* ... */</span>
+};
+</pre>
+
+<h2 id="apic">13.3 APIC — 现代多核中断架构</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 320" font-family="-apple-system,sans-serif" font-size="11">
+<defs><marker id="ar13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ff7b29"/></marker></defs>
+<text x="400" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#ff7b29">现代 x86 中断路径</text>
+
+<g><rect x="20" y="60" width="120" height="50" rx="6" fill="#1a2028" stroke="#bc8cff"/>
+<text x="80" y="82" text-anchor="middle" fill="#bc8cff">外设 (网卡)</text>
+<text x="80" y="100" text-anchor="middle" fill="#8b949e" font-size="10">PCIe MSI-X</text></g>
+
+<line x1="140" y1="85" x2="180" y2="85" stroke="#ff7b29" marker-end="url(#ar13)"/>
+
+<g><rect x="180" y="60" width="120" height="50" rx="6" fill="#1a2028" stroke="#58a6ff"/>
+<text x="240" y="82" text-anchor="middle" fill="#58a6ff">IOAPIC / MSI</text>
+<text x="240" y="100" text-anchor="middle" fill="#8b949e" font-size="10">路由到特定 CPU</text></g>
+
+<line x1="300" y1="85" x2="340" y2="85" stroke="#ff7b29" marker-end="url(#ar13)"/>
+
+<g><rect x="340" y="60" width="120" height="50" rx="6" fill="#1a2028" stroke="#56d364"/>
+<text x="400" y="82" text-anchor="middle" fill="#56d364">Local APIC</text>
+<text x="400" y="100" text-anchor="middle" fill="#8b949e" font-size="10">每核一个</text></g>
+
+<line x1="460" y1="85" x2="500" y2="85" stroke="#ff7b29" marker-end="url(#ar13)"/>
+
+<g><rect x="500" y="60" width="120" height="50" rx="6" fill="#1a2028" stroke="#e3b341"/>
+<text x="560" y="82" text-anchor="middle" fill="#e3b341">CPU 核</text>
+<text x="560" y="100" text-anchor="middle" fill="#8b949e" font-size="10">查 IDT</text></g>
+
+<line x1="620" y1="85" x2="660" y2="85" stroke="#ff7b29" marker-end="url(#ar13)"/>
+
+<g><rect x="660" y="60" width="120" height="50" rx="6" fill="#1a2028" stroke="#f85149"/>
+<text x="720" y="82" text-anchor="middle" fill="#f85149">ISR 入口</text>
+<text x="720" y="100" text-anchor="middle" fill="#8b949e" font-size="10">汇编→ C 处理</text></g>
+
+<g transform="translate(20, 150)">
+<rect width="760" height="80" rx="6" fill="#1a2028" stroke="#56d364"/>
+<text x="380" y="22" text-anchor="middle" fill="#56d364" font-weight="700">下半部 (Bottom Half) — 把慢的工作搬出中断上下文</text>
+<text x="20" y="44" font-size="11" fill="#e6edf3">· softirq (10 种固定): NET_TX, NET_RX, TIMER, BLOCK, TASKLET, SCHED, HRTIMER, RCU ...</text>
+<text x="20" y="62" font-size="11" fill="#e6edf3">· workqueue (进程上下文): kworker 线程池, 可 sleep, 现代首选</text>
+<text x="20" y="76" font-size="11" fill="#e6edf3">· threaded IRQ: 整个上半部就跑在独立线程, RT 内核必备</text>
+</g>
+
+<g transform="translate(20, 250)">
+<rect width="760" height="60" rx="6" fill="#1a2028" stroke="#bc8cff"/>
+<text x="380" y="22" text-anchor="middle" fill="#bc8cff" font-weight="700">IPI (Inter-Processor Interrupt) — CPU 间互相打招呼</text>
+<text x="20" y="44" font-size="11" fill="#e6edf3">RESCHEDULE_VECTOR: 让另一核重新调度 (load balancing 唤醒)</text>
+<text x="380" y="44" font-size="11" fill="#e6edf3">TLB_FLUSH: 远程 TLB 失效 (mmu_notifier)</text>
+</g>
+</svg>
+</div>
+
+<h2 id="softirq">13.4 softirq vs tasklet vs workqueue</h2>
+
+<table>
+<tr><th>对比</th><th>softirq</th><th>tasklet</th><th>workqueue</th></tr>
+<tr><td>类型数</td><td>固定 10 种</td><td>可动态创建</td><td>可动态创建</td></tr>
+<tr><td>上下文</td><td>软中断</td><td>软中断</td><td><b>进程</b></td></tr>
+<tr><td>可 sleep</td><td>否</td><td>否</td><td><b>是</b></td></tr>
+<tr><td>并发</td><td>同类可在不同 CPU 并发</td><td>同类只在一个 CPU</td><td>完全并发</td></tr>
+<tr><td>典型用户</td><td>网络/定时器</td><td>逐步淘汰</td><td>多数延后处理首选</td></tr>
+</table>
+
+<pre class="code-c"><span class="cm">/* workqueue 使用示例 */</span>
+<span class="kw">static void</span> <span class="fn">my_work_fn</span>(<span class="kw">struct</span> work_struct *w) {
+    <span class="cm">// 进程上下文! 可以 sleep、kmalloc(GFP_KERNEL)</span>
+    msleep(<span class="num">100</span>);
+    do_slow_io();
+}
+
+DECLARE_WORK(my_work, my_work_fn);
+
+<span class="cm">/* 中断里触发 */</span>
+schedule_work(&my_work);           <span class="cm">// 加入 system_wq</span>
+
+<span class="cm">/* 或专用 workqueue */</span>
+<span class="kw">struct</span> workqueue_struct *wq = alloc_workqueue(<span class="str">"my_wq"</span>, WQ_UNBOUND, <span class="num">0</span>);
+queue_work(wq, &my_work);
+
+<span class="cm">/* 延后执行 */</span>
+DECLARE_DELAYED_WORK(dw, my_work_fn);
+schedule_delayed_work(&dw, msecs_to_jiffies(<span class="num">500</span>));
+</pre>
+
+<h2 id="threaded">13.5 threaded IRQ — 整个中断处理跑在线程里</h2>
+
+<p>实时系统 (PREEMPT_RT) 几乎所有中断都改为 threaded IRQ，因为传统 ISR 不能被抢占，破坏延迟保证：</p>
+
+<pre class="code-c"><span class="cm">/* 注册 threaded IRQ */</span>
+<span class="cm">/* primary = 快速 ack;  thread_fn = 实际处理逻辑在线程里 */</span>
+request_threaded_irq(irq,
+                     primary_handler,   <span class="cm">// 也可为 NULL</span>
+                     threaded_handler,  <span class="cm">// 进程上下文，可 sleep!</span>
+                     IRQF_ONESHOT,
+                     <span class="str">"my-dev"</span>, dev);
+</pre>
+
+<h2 id="experiment">13.6 实验：观察中断分布</h2>
+
+<pre class="code-bash"><span class="cm"># 看每核每个中断的次数</span>
+cat /proc/interrupts
+
+           CPU0       CPU1       CPU2       CPU3
+  <span class="num">0</span>:        <span class="num">125</span>          <span class="num">0</span>          <span class="num">0</span>          <span class="num">0</span>   IO-APIC   <span class="num">2</span>-edge      timer
+  <span class="num">1</span>:          <span class="num">0</span>         <span class="num">12</span>          <span class="num">0</span>          <span class="num">0</span>   IO-APIC   <span class="num">1</span>-edge      i8042
+  <span class="num">8</span>:          <span class="num">1</span>          <span class="num">0</span>          <span class="num">0</span>          <span class="num">0</span>   IO-APIC   <span class="num">8</span>-edge      rtc0
+ <span class="num">26</span>:      <span class="num">12345</span>     <span class="num">12876</span>     <span class="num">11432</span>     <span class="num">12098</span>   PCI-MSI <span class="num">2097152</span>-edge   eth0
+
+<span class="cm"># 把网卡 IRQ 26 绑定到 CPU 1</span>
+echo <span class="num">2</span> > /proc/irq/<span class="num">26</span>/smp_affinity   <span class="cm"># 0x2 = CPU 1</span>
+
+<span class="cm"># 看 softirq 统计</span>
+cat /proc/softirqs
+
+<span class="cm"># ftrace 跟踪中断</span>
+echo <span class="num">1</span> > /sys/kernel/debug/tracing/events/irq/enable
+cat /sys/kernel/debug/tracing/trace_pipe
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../12-eBPF与可观测性/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../14-启动流程深入/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

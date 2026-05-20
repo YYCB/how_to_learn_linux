@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 540" font-family="-apple-system, sans-serif" font-size="12">
+  <text x="450" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">Linux 容器 = 命名空间 (Namespaces) + 控制组 (cgroups) + 联合文件系统</text>
+
+  <!-- Container box -->
+  <g transform="translate(40, 60)">
+    <rect width="820" height="220" rx="8" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+    <text x="20" y="28" font-weight="700" fill="#ff7b29" font-size="15">容器进程 (普通的 Linux 进程，但被以下机制"圈起来")</text>
+
+    <!-- Namespaces -->
+    <g transform="translate(20, 50)">
+      <text font-weight="700" fill="#58a6ff" font-size="13">① 命名空间 (Namespaces) — 让进程"看不见"系统其他部分</text>
+
+      <g font-size="11">
+        <rect x="0" y="14" width="160" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="80" y="32" text-anchor="middle" fill="#58a6ff" font-weight="700">PID ns</text>
+        <text x="80" y="48" text-anchor="middle" fill="#8b949e">独立 PID 编号</text>
+        <text x="80" y="64" text-anchor="middle" fill="#8b949e">容器内 init=1</text>
+
+        <rect x="170" y="14" width="160" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="250" y="32" text-anchor="middle" fill="#58a6ff" font-weight="700">Mount ns</text>
+        <text x="250" y="48" text-anchor="middle" fill="#8b949e">独立挂载点</text>
+        <text x="250" y="64" text-anchor="middle" fill="#8b949e">独立根目录视图</text>
+
+        <rect x="340" y="14" width="160" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="420" y="32" text-anchor="middle" fill="#58a6ff" font-weight="700">Network ns</text>
+        <text x="420" y="48" text-anchor="middle" fill="#8b949e">独立网卡/路由</text>
+        <text x="420" y="64" text-anchor="middle" fill="#8b949e">独立防火墙</text>
+
+        <rect x="510" y="14" width="160" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="590" y="32" text-anchor="middle" fill="#58a6ff" font-weight="700">UTS ns</text>
+        <text x="590" y="48" text-anchor="middle" fill="#8b949e">独立 hostname</text>
+        <text x="590" y="64" text-anchor="middle" fill="#8b949e">domain name</text>
+
+        <rect x="680" y="14" width="100" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="730" y="32" text-anchor="middle" fill="#58a6ff" font-weight="700">IPC ns</text>
+        <text x="730" y="48" text-anchor="middle" fill="#8b949e">独立 SysV</text>
+        <text x="730" y="64" text-anchor="middle" fill="#8b949e">/POSIX IPC</text>
+
+        <rect x="0" y="86" width="160" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="80" y="104" text-anchor="middle" fill="#58a6ff" font-weight="700">User ns</text>
+        <text x="80" y="120" text-anchor="middle" fill="#8b949e">UID/GID 映射</text>
+        <text x="80" y="136" text-anchor="middle" fill="#8b949e">非 root 也能容器化</text>
+
+        <rect x="170" y="86" width="160" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="250" y="104" text-anchor="middle" fill="#58a6ff" font-weight="700">Cgroup ns</text>
+        <text x="250" y="120" text-anchor="middle" fill="#8b949e">独立 cgroup 视图</text>
+        <text x="250" y="136" text-anchor="middle" fill="#8b949e">隐藏宿主路径</text>
+
+        <rect x="340" y="86" width="160" height="60" rx="4" fill="#0f1419" stroke="#58a6ff"/>
+        <text x="420" y="104" text-anchor="middle" fill="#58a6ff" font-weight="700">Time ns</text>
+        <text x="420" y="120" text-anchor="middle" fill="#8b949e">独立时钟偏移</text>
+        <text x="420" y="136" text-anchor="middle" fill="#8b949e">(5.6+)</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- cgroups -->
+  <g transform="translate(40, 300)">
+    <rect width="400" height="220" rx="8" fill="#1a2028" stroke="#56d364" stroke-width="2"/>
+    <text x="20" y="28" font-weight="700" fill="#56d364" font-size="15">② cgroups — 资源限制</text>
+
+    <g font-size="11" transform="translate(20, 50)">
+      <rect x="0" y="0" width="170" height="44" rx="4" fill="#0f1419" stroke="#56d364"/>
+      <text x="85" y="18" text-anchor="middle" fill="#56d364" font-weight="700">cpu</text>
+      <text x="85" y="34" text-anchor="middle" fill="#8b949e">CPU 时间份额/上限</text>
+
+      <rect x="190" y="0" width="170" height="44" rx="4" fill="#0f1419" stroke="#56d364"/>
+      <text x="275" y="18" text-anchor="middle" fill="#56d364" font-weight="700">memory</text>
+      <text x="275" y="34" text-anchor="middle" fill="#8b949e">内存上限/OOM</text>
+
+      <rect x="0" y="54" width="170" height="44" rx="4" fill="#0f1419" stroke="#56d364"/>
+      <text x="85" y="72" text-anchor="middle" fill="#56d364" font-weight="700">io / blkio</text>
+      <text x="85" y="88" text-anchor="middle" fill="#8b949e">磁盘 IOPS / 带宽</text>
+
+      <rect x="190" y="54" width="170" height="44" rx="4" fill="#0f1419" stroke="#56d364"/>
+      <text x="275" y="72" text-anchor="middle" fill="#56d364" font-weight="700">pids</text>
+      <text x="275" y="88" text-anchor="middle" fill="#8b949e">最大进程数</text>
+
+      <rect x="0" y="108" width="360" height="44" rx="4" fill="#0f1419" stroke="#56d364"/>
+      <text x="180" y="126" text-anchor="middle" fill="#56d364" font-weight="700">devices, freezer, net_cls, net_prio, hugetlb, rdma...</text>
+      <text x="180" y="142" text-anchor="middle" fill="#8b949e">cgroups v2 统一层级 (Linux 4.5+)</text>
+    </g>
+  </g>
+
+  <!-- Union FS -->
+  <g transform="translate(460, 300)">
+    <rect width="400" height="220" rx="8" fill="#1a2028" stroke="#bc8cff" stroke-width="2"/>
+    <text x="20" y="28" font-weight="700" fill="#bc8cff" font-size="15">③ 联合文件系统 — 镜像分层</text>
+
+    <g transform="translate(20, 50)" font-size="11">
+      <!-- Stacked layers -->
+      <rect x="0" y="100" width="360" height="22" rx="2" fill="#0f1419" stroke="#bc8cff"/>
+      <text x="180" y="116" text-anchor="middle" fill="#e6edf3">基础镜像层 (alpine:latest) — 只读</text>
+
+      <rect x="20" y="76" width="320" height="22" rx="2" fill="#0f1419" stroke="#bc8cff"/>
+      <text x="180" y="92" text-anchor="middle" fill="#e6edf3">中间层 (apt install ...) — 只读</text>
+
+      <rect x="40" y="52" width="280" height="22" rx="2" fill="#0f1419" stroke="#bc8cff"/>
+      <text x="180" y="68" text-anchor="middle" fill="#e6edf3">应用层 (COPY app.py) — 只读</text>
+
+      <rect x="60" y="28" width="240" height="22" rx="2" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+      <text x="180" y="44" text-anchor="middle" fill="#ff7b29" font-weight="700">容器读写层 (CoW)</text>
+
+      <text x="180" y="156" text-anchor="middle" fill="#8b949e">OverlayFS = lowerdir + upperdir + merged</text>
+    </g>
+  </g>
+</svg>

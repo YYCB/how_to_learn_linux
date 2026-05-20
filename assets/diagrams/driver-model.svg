@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 420" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12">
+  <rect width="860" height="420" fill="#0d1117"/>
+  <text x="430" y="30" text-anchor="middle" font-size="18" font-weight="700" fill="#ff7b29">Linux 设备模型 — kobject 层次</text>
+
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#ff7b29"/>
+    </marker>
+  </defs>
+
+  <!-- sysfs tree -->
+  <rect x="30" y="55" width="140" height="50" rx="5" fill="#1a2028" stroke="#f85149" stroke-width="2"/>
+  <text x="100" y="75" text-anchor="middle" fill="#f85149" font-weight="700">kobject</text>
+  <text x="100" y="92" text-anchor="middle" fill="#8b949e" font-size="10">引用计数 + sysfs 节点</text>
+
+  <line x1="100" y1="105" x2="100" y2="130" stroke="#ff7b29" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <rect x="30" y="130" width="140" height="50" rx="5" fill="#1a2028" stroke="#e3b341" stroke-width="1.5"/>
+  <text x="100" y="150" text-anchor="middle" fill="#e3b341" font-weight="700">kset</text>
+  <text x="100" y="165" text-anchor="middle" fill="#8b949e" font-size="10">kobject 的集合/容器</text>
+
+  <line x1="100" y1="180" x2="100" y2="205" stroke="#ff7b29" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <rect x="30" y="205" width="140" height="50" rx="5" fill="#1a2028" stroke="#56d364" stroke-width="1.5"/>
+  <text x="100" y="225" text-anchor="middle" fill="#56d364" font-weight="700">device</text>
+  <text x="100" y="240" text-anchor="middle" fill="#8b949e" font-size="10">嵌入 kobject</text>
+
+  <line x1="100" y1="255" x2="100" y2="280" stroke="#ff7b29" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <rect x="30" y="280" width="140" height="50" rx="5" fill="#1a2028" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="100" y="300" text-anchor="middle" fill="#58a6ff" font-weight="700">device_driver</text>
+  <text x="100" y="315" text-anchor="middle" fill="#8b949e" font-size="10">probe/remove 操作集</text>
+
+  <!-- sysfs -->
+  <rect x="220" y="55" width="160" height="300" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="300" y="78" text-anchor="middle" fill="#8b949e" font-weight="600">/sys 文件系统</text>
+  <text x="300" y="100" text-anchor="middle" fill="#56d364" font-size="10">/sys/bus/</text>
+  <text x="300" y="117" text-anchor="middle" fill="#8b949e" font-size="9">  platform/ pci/ usb/ i2c/</text>
+  <text x="300" y="135" text-anchor="middle" fill="#56d364" font-size="10">/sys/devices/</text>
+  <text x="300" y="152" text-anchor="middle" fill="#8b949e" font-size="9">  物理设备树</text>
+  <text x="300" y="170" text-anchor="middle" fill="#56d364" font-size="10">/sys/class/</text>
+  <text x="300" y="187" text-anchor="middle" fill="#8b949e" font-size="9">  net/ block/ input/</text>
+  <text x="300" y="205" text-anchor="middle" fill="#56d364" font-size="10">/sys/module/</text>
+  <text x="300" y="222" text-anchor="middle" fill="#8b949e" font-size="9">  已加载模块参数</text>
+  <text x="300" y="250" text-anchor="middle" fill="#e3b341" font-size="10">每个目录 = 一个 kobject</text>
+  <text x="300" y="267" text-anchor="middle" fill="#e3b341" font-size="10">每个文件 = 一个 attribute</text>
+
+  <!-- driver lifecycle -->
+  <rect x="410" y="55" width="420" height="300" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="620" y="78" text-anchor="middle" fill="#8b949e" font-weight="600">驱动注册与 probe 生命周期</text>
+
+  <rect x="430" y="92" width="160" height="40" rx="4" fill="#1a2028" stroke="#56d364"/>
+  <text x="510" y="108" text-anchor="middle" fill="#56d364" font-size="10">platform_driver_register()</text>
+  <text x="510" y="122" text-anchor="middle" fill="#8b949e" font-size="9">注册到 platform bus</text>
+
+  <line x1="510" y1="132" x2="510" y2="152" stroke="#ff7b29" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <rect x="430" y="152" width="160" height="40" rx="4" fill="#1a2028" stroke="#e3b341"/>
+  <text x="510" y="168" text-anchor="middle" fill="#e3b341" font-size="10">bus match()</text>
+  <text x="510" y="182" text-anchor="middle" fill="#8b949e" font-size="9">名字/of_match 匹配设备</text>
+
+  <line x1="510" y1="192" x2="510" y2="212" stroke="#ff7b29" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <rect x="430" y="212" width="160" height="40" rx="4" fill="#1a2028" stroke="#58a6ff"/>
+  <text x="510" y="228" text-anchor="middle" fill="#58a6ff" font-size="10">driver→probe()</text>
+  <text x="510" y="242" text-anchor="middle" fill="#8b949e" font-size="9">申请资源/初始化硬件</text>
+
+  <line x1="510" y1="252" x2="510" y2="272" stroke="#ff7b29" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <rect x="430" y="272" width="160" height="40" rx="4" fill="#1a2028" stroke="#56d364"/>
+  <text x="510" y="288" text-anchor="middle" fill="#56d364" font-size="10">设备正常运行</text>
+  <text x="510" y="302" text-anchor="middle" fill="#8b949e" font-size="9">register_chrdev / netdev</text>
+
+  <!-- device tree note -->
+  <rect x="610" y="92" width="200" height="220" rx="4" fill="#0d1117" stroke="#30363d"/>
+  <text x="710" y="112" text-anchor="middle" fill="#8957e5" font-weight="600" font-size="11">设备树 (DTS)</text>
+  <text x="710" y="130" text-anchor="middle" fill="#8b949e" font-size="9">ARM/RISC-V 非 ACPI 平台</text>
+  <text x="710" y="148" text-anchor="middle" fill="#56d364" font-size="9">compatible = "vendor,chip"</text>
+  <text x="710" y="165" text-anchor="middle" fill="#8b949e" font-size="9">↕ of_match_table 匹配</text>
+  <text x="710" y="183" text-anchor="middle" fill="#8b949e" font-size="9">of_get_property()</text>
+  <text x="710" y="200" text-anchor="middle" fill="#8b949e" font-size="9">devm_ioremap_resource()</text>
+  <text x="710" y="218" text-anchor="middle" fill="#8b949e" font-size="9">devm_* 自动资源管理</text>
+  <text x="710" y="236" text-anchor="middle" fill="#e3b341" font-size="9">rmmod 时自动释放所有</text>
+  <text x="710" y="253" text-anchor="middle" fill="#e3b341" font-size="9">devm_ 申请的资源</text>
+
+  <!-- /proc/devices legend -->
+  <rect x="30" y="350" width="820" height="50" rx="5" fill="#161b22" stroke="#30363d"/>
+  <text x="430" y="370" text-anchor="middle" fill="#8b949e" font-size="10">关键命令: lsmod | modinfo &lt;mod&gt; | modprobe --show-depends &lt;mod&gt; | udevadm info /dev/sda | ls /sys/bus/platform/drivers/</text>
+  <text x="430" y="390" text-anchor="middle" fill="#8b949e" font-size="10">主/次设备号: ls -l /dev/ → crw(字符)/brw(块); mknod /dev/mydev c 240 0</text>
+</svg>

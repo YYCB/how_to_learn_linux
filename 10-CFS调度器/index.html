@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 · CFS 完全公平调度器深入 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html" class="active">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">10</span>CFS 完全公平调度器深入</h1>
+
+
+<p>CFS (Completely Fair Scheduler) 由 Ingo Molnar 在 2.6.23 引入，<b>取代了 O(1) 调度器</b>，至今仍是 Linux 默认调度器。本章逐层揭开它的"公平"如何实现。</p>
+
+<h2 id="idea">10.1 核心思想 — 公平 = 等比例 CPU 时间</h2>
+
+<div class="callout deep">
+<div class="label">CFS 一句话原理</div>
+<p>设想一个"理想的多任务 CPU"，能<b>同时</b>运行所有进程，每个进程得到 <code>1/n</code> 的 CPU。
+CFS 用 <b>vruntime</b> 模拟这个理想：<b>每个进程的 vruntime 应该完全相等</b>，
+谁的 vruntime 最小，就调度谁。</p>
+</div>
+
+<h2 id="vruntime">10.2 vruntime 是什么</h2>
+
+<div class="diagram">
+<img src="../assets/diagrams/cfs-rbtree.svg" alt="CFS 红黑树">
+<div class="caption">CFS 红黑树按 vruntime 排序，每次取最左节点</div>
+</div>
+
+<pre class="code-c"><span class="cm">/* kernel/sched/fair.c */</span>
+<span class="kw">struct</span> sched_entity {
+    <span class="kw">struct</span> load_weight load;       <span class="cm">// 由 nice 值决定</span>
+    <span class="kw">struct</span> rb_node run_node;        <span class="cm">// 红黑树节点</span>
+    <span class="kw">u64</span> exec_start;                <span class="cm">// 上次开始运行的时刻</span>
+    <span class="kw">u64</span> sum_exec_runtime;          <span class="cm">// 累计实际运行时间</span>
+    <span class="kw">u64</span> vruntime;                  <span class="cm">// ★ 虚拟运行时间</span>
+    <span class="kw">u64</span> prev_sum_exec_runtime;
+    <span class="kw">struct</span> cfs_rq *cfs_rq;
+};
+
+<span class="cm">/* 每次 tick (1ms) 更新 vruntime */</span>
+<span class="kw">static void</span> <span class="fn">update_curr</span>(<span class="kw">struct</span> cfs_rq *cfs_rq) {
+    <span class="kw">struct</span> sched_entity *curr = cfs_rq->curr;
+    <span class="kw">u64</span> now = rq_clock_task(rq_of(cfs_rq));
+    <span class="kw">u64</span> delta_exec = now - curr->exec_start;
+    
+    curr->exec_start = now;
+    curr->sum_exec_runtime += delta_exec;
+    
+    <span class="cm">// 关键公式!</span>
+    curr->vruntime += <span class="fn">calc_delta_fair</span>(delta_exec, curr);
+    update_min_vruntime(cfs_rq);
+}
+
+<span class="cm">/* calc_delta_fair: 实际时间 → 虚拟时间 */</span>
+<span class="kw">static inline u64</span> <span class="fn">calc_delta_fair</span>(<span class="kw">u64</span> delta, <span class="kw">struct</span> sched_entity *se) {
+    <span class="kw">if</span> (unlikely(se->load.weight != NICE_0_LOAD))
+        delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
+    <span class="kw">return</span> delta;
+}
+</pre>
+
+<div class="callout tip">
+<div class="label">公式直观理解</div>
+<pre><b>delta_vruntime = delta_real × (NICE_0_LOAD / weight)</b></pre>
+<ul>
+<li>nice = 0 → weight = 1024 (NICE_0_LOAD)，<b>实时间 = 虚时间</b></li>
+<li>nice = -5 → weight = 3121，虚时间增长慢 → 多被选中 (高优先级)</li>
+<li>nice = +5 → weight = 335，虚时间增长快 → 少被选中 (低优先级)</li>
+</ul>
+<p>nice 每差 1，CPU 份额比例约为 <b>1.25:1</b>（标准定义）。</p>
+</div>
+
+<h2 id="rbtree">10.3 红黑树 — 为什么用它</h2>
+
+<table>
+<tr><th>数据结构</th><th>插入</th><th>删除</th><th>取最小</th><th>结论</th></tr>
+<tr><td>链表</td><td>O(1) 或 O(n)</td><td>O(1) 或 O(n)</td><td>O(n)</td><td>太慢</td></tr>
+<tr><td>最小堆</td><td>O(log n)</td><td>O(log n)</td><td>O(1)</td><td>但更新 vruntime 不便</td></tr>
+<tr><td><b>红黑树</b></td><td><b>O(log n)</b></td><td><b>O(log n)</b></td><td><b>O(1) (缓存 leftmost)</b></td><td><b>赢家</b></td></tr>
+</table>
+
+<pre class="code-c"><span class="cm">/* CFS 每个 CPU 一个 cfs_rq */</span>
+<span class="kw">struct</span> cfs_rq {
+    <span class="kw">struct</span> load_weight load;
+    <span class="kw">unsigned int</span> nr_running;
+    <span class="kw">u64</span> min_vruntime;             <span class="cm">// 队列里最小 vruntime, 用于新进程初始化</span>
+    <span class="kw">struct</span> rb_root_cached tasks_timeline;  <span class="cm">// 红黑树 + leftmost 缓存</span>
+    <span class="kw">struct</span> sched_entity *curr;
+};
+
+<span class="cm">/* pick_next_task_fair — 选下一个 */</span>
+<span class="kw">struct</span> task_struct *<span class="fn">pick_next_task_fair</span>(<span class="kw">struct</span> rq *rq, ...) {
+    <span class="kw">struct</span> cfs_rq *cfs_rq = &rq->cfs;
+    <span class="kw">struct</span> sched_entity *se;
+    
+    <span class="cm">// 取红黑树最左节点 — O(1)!</span>
+    se = pick_next_entity(cfs_rq, NULL);
+    <span class="kw">return</span> task_of(se);
+}
+</pre>
+
+<h2 id="sched_class">10.4 调度类 — CFS 不是全部</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" font-family="-apple-system,sans-serif" font-size="11">
+<text x="400" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#ff7b29">5 个调度类按优先级排序</text>
+<g><rect x="40" y="50" width="140" height="80" rx="6" fill="#1a2028" stroke="#f85149" stroke-width="2"/>
+<text x="110" y="74" text-anchor="middle" fill="#f85149" font-weight="700">stop_sched_class</text>
+<text x="110" y="92" text-anchor="middle" fill="#8b949e" font-size="10">最高优先级</text>
+<text x="110" y="108" text-anchor="middle" fill="#8b949e" font-size="10">migration/hot-unplug</text></g>
+
+<g><rect x="200" y="50" width="140" height="80" rx="6" fill="#1a2028" stroke="#ff7b29" stroke-width="2"/>
+<text x="270" y="74" text-anchor="middle" fill="#ff7b29" font-weight="700">dl_sched_class</text>
+<text x="270" y="92" text-anchor="middle" fill="#8b949e" font-size="10">Deadline (SCHED_DEADLINE)</text>
+<text x="270" y="108" text-anchor="middle" fill="#8b949e" font-size="10">EDF 算法</text></g>
+
+<g><rect x="360" y="50" width="140" height="80" rx="6" fill="#1a2028" stroke="#e3b341" stroke-width="2"/>
+<text x="430" y="74" text-anchor="middle" fill="#e3b341" font-weight="700">rt_sched_class</text>
+<text x="430" y="92" text-anchor="middle" fill="#8b949e" font-size="10">实时 (FIFO/RR)</text>
+<text x="430" y="108" text-anchor="middle" fill="#8b949e" font-size="10">prio 0~99</text></g>
+
+<g><rect x="520" y="50" width="140" height="80" rx="6" fill="#1a2028" stroke="#56d364" stroke-width="3"/>
+<text x="590" y="74" text-anchor="middle" fill="#56d364" font-weight="700">fair_sched_class (CFS)</text>
+<text x="590" y="92" text-anchor="middle" fill="#8b949e" font-size="10">★ 默认</text>
+<text x="590" y="108" text-anchor="middle" fill="#8b949e" font-size="10">99% 任务用这个</text></g>
+
+<g><rect x="680" y="50" width="100" height="80" rx="6" fill="#1a2028" stroke="#8b949e" stroke-width="2"/>
+<text x="730" y="74" text-anchor="middle" fill="#8b949e" font-weight="700">idle_sched_class</text>
+<text x="730" y="92" text-anchor="middle" fill="#8b949e" font-size="10">最低</text>
+<text x="730" y="108" text-anchor="middle" fill="#8b949e" font-size="10">idle 进程</text></g>
+
+<text x="400" y="180" text-anchor="middle" fill="#8b949e" font-size="11">pick_next_task 依次问每个类: 有任务给我吗?</text>
+<text x="400" y="200" text-anchor="middle" fill="#8b949e" font-size="11">stop → dl → rt → cfs → idle (绝对优先级)</text>
+</svg>
+</div>
+
+<h2 id="loadbalance">10.5 负载均衡</h2>
+
+<p>SMP 系统每核一个 runqueue，CFS 周期性把"忙核"的任务迁到"闲核"：</p>
+
+<pre class="code-bash"><span class="cm"># 调度域层级 (NUMA + SMT 系统)</span>
+sys/kernel/debug/sched/domains/
+└── cpu<span class="num">0</span>/
+    ├── domain0/           <span class="cm"># SMT (兄弟核) — 几乎免费迁</span>
+    │   ├── name: SMT
+    │   └── flags: SD_SHARE_CPUCAPACITY ...
+    ├── domain1/           <span class="cm"># MC (同 LLC/L3) — 便宜</span>
+    │   ├── name: MC
+    │   └── flags: SD_SHARE_PKG_RESOURCES ...
+    └── domain2/           <span class="cm"># NUMA — 昂贵, 慎迁</span>
+        ├── name: NUMA
+        └── flags: SD_NUMA ...
+</pre>
+
+<p>每个 tick 检查是否需要均衡，按调度域<b>从小到大</b>逐层尝试。同一 socket 内的迁移几乎免费（L3 命中），跨 NUMA 迁移成本极高。</p>
+
+<h2 id="cgroup">10.6 CFS + cgroup 层次调度</h2>
+
+<p>容器场景下，<b>每个 cgroup 是一个 sched_entity</b>，它内部又有自己的 cfs_rq 包含子任务/子 cgroup。
+"公平"于是变成"<b>cgroup 间公平 → cgroup 内任务间公平</b>"的两层结构。</p>
+
+<pre class="code-bash"><span class="cm"># cgroup v2 配置 cpu.weight (默认 100, 范围 1~10000)</span>
+echo <span class="num">200</span> > /sys/fs/cgroup/my_app/cpu.weight   <span class="cm"># 翻倍权重</span>
+echo <span class="num">50</span>  > /sys/fs/cgroup/junk/cpu.weight    <span class="cm"># 半倍权重</span>
+
+<span class="cm"># cpu.max — 硬上限 (类似 nice -20 但更可控)</span>
+echo <span class="str">"50000 100000"</span> > /sys/fs/cgroup/my_app/cpu.max  <span class="cm"># 50%</span>
+</pre>
+
+<h2 id="eas">10.7 EAS — 能效感知调度 (移动场景)</h2>
+
+<p>big.LITTLE / DynamIQ ARM 芯片有"大核"和"小核"，性能-功耗特性不同。
+<b>EAS (Energy Aware Scheduling)</b> 在 5.x 内核引入，调度时计算每核的<b>能效模型</b>，把任务放在能量最低且满足性能的核上：</p>
+
+<pre class="code-bash">cat /sys/devices/system/cpu/cpu0/cpu_capacity     <span class="cm"># 大核可能 1024</span>
+cat /sys/devices/system/cpu/cpu4/cpu_capacity     <span class="cm"># 小核可能 446</span>
+
+cat /sys/kernel/debug/sched/features              <span class="cm"># 看 EAS 是否开启</span>
+</pre>
+
+<h2 id="debug">10.8 CFS 调试与可视化</h2>
+
+<pre class="code-bash"><span class="cm"># 实时查看每个 cfs_rq 状态</span>
+cat /proc/sched_debug
+
+<span class="cm"># 用 ftrace 看调度事件</span>
+echo function_graph > /sys/kernel/debug/tracing/current_tracer
+echo pick_next_task_fair > /sys/kernel/debug/tracing/set_graph_function
+cat /sys/kernel/debug/tracing/trace_pipe
+
+<span class="cm"># 用 perf 看上下文切换</span>
+perf sched record sleep <span class="num">5</span>
+perf sched latency
+perf sched map        <span class="cm"># 可视化每核任务时间线</span>
+
+<span class="cm"># BPF 工具</span>
+bpftrace -e <span class="str">'tracepoint:sched:sched_switch { @[prev_comm, next_comm] = count(); }'</span>
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../09-同步机制/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../11-容器与命名空间/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>
