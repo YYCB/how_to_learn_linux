@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 · 系统调用 — 用户态与内核态的桥梁 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html" class="active">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">06</span>系统调用 — 用户态与内核态的桥梁</h1>
+
+
+<p>系统调用是<b>唯一</b>合法的"用户态 → 内核态"通道。本章彻底搞清 <code>read(fd, buf, n)</code> 之后到底发生了什么。</p>
+
+<h2 id="flow">6.1 完整路径全景</h2>
+<div class="diagram">
+<img src="../assets/diagrams/syscall-flow.svg" alt="系统调用流程">
+<div class="caption">从 glibc 到块设备的 6 个阶段</div>
+</div>
+
+<h2 id="x86">6.2 x86 三代系统调用机制</h2>
+
+<table>
+<tr><th>机制</th><th>指令</th><th>引入</th><th>开销</th><th>触发方式</th></tr>
+<tr><td>软中断</td><td><code>int 0x80</code></td><td>286</td><td>慢 (~1000 cycles)</td><td>查 IDT，类似中断</td></tr>
+<tr><td>SYSENTER</td><td><code>sysenter</code> / <code>sysexit</code></td><td>Pentium II</td><td>快 (~100 cycles)</td><td>从 MSR 直接跳转</td></tr>
+<tr><td>SYSCALL</td><td><code>syscall</code> / <code>sysret</code></td><td>x86_64</td><td>最快</td><td>从 MSR 直接跳转</td></tr>
+</table>
+
+<h3>x86_64 syscall 入口</h3>
+<pre class="code-asm"><span class="cm">; arch/x86/entry/entry_64.S — entry_SYSCALL_64</span>
+SYM_CODE_START(entry_SYSCALL_64)
+    swapgs                              <span class="cm">; 切换 GSBASE 到内核 per-CPU 数据</span>
+    movq    %rsp, PER_CPU_VAR(cpu_tss_rw + TSS_sp2)
+    movq    PER_CPU_VAR(cpu_current_top_of_stack), %rsp   <span class="cm">; 换内核栈</span>
+
+    pushq   $__USER_DS                  <span class="cm">; 构造 pt_regs (假装中断那样)</span>
+    pushq   PER_CPU_VAR(cpu_tss_rw + TSS_sp2)
+    pushq   %r11                        <span class="cm">; 用户态 RFLAGS</span>
+    pushq   $__USER_CS
+    pushq   %rcx                        <span class="cm">; 用户态 RIP (syscall 把它存到 rcx)</span>
+    pushq   %rax                        <span class="cm">; 系统调用号</span>
+    PUSH_AND_CLEAR_REGS rax=$-ENOSYS    <span class="cm">; 保存其他寄存器</span>
+
+    movq    %rsp, %rdi                  <span class="cm">; rdi = pt_regs *</span>
+    call    do_syscall_64               <span class="cm">; ─── 进入 C 代码</span>
+
+    <span class="cm">; ... 返回路径: 检查 signal/resched, swapgs, sysretq</span>
+SYM_CODE_END(entry_SYSCALL_64)
+</pre>
+
+<h3>分发：do_syscall_64</h3>
+<pre class="code-c"><span class="cm">/* arch/x86/entry/common.c */</span>
+__visible noinstr <span class="kw">void</span> <span class="fn">do_syscall_64</span>(<span class="kw">struct</span> pt_regs *regs, <span class="kw">int</span> nr) {
+    nr = syscall_enter_from_user_mode(regs, nr);
+
+    <span class="kw">if</span> (likely(nr < NR_syscalls)) {
+        nr = array_index_nospec(nr, NR_syscalls);
+        <span class="cm">// 关键: 通过函数指针表分发</span>
+        regs->ax = sys_call_table[nr](regs);
+    }
+
+    syscall_exit_to_user_mode(regs);
+}
+
+<span class="cm">/* sys_call_table 由 syscall_64.tbl 自动生成 */</span>
+<span class="kw">extern const</span> sys_call_ptr_t sys_call_table[NR_syscalls] = {
+    [<span class="num">0</span>]   = __x64_sys_read,
+    [<span class="num">1</span>]   = __x64_sys_write,
+    [<span class="num">2</span>]   = __x64_sys_open,
+    [<span class="num">3</span>]   = __x64_sys_close,
+    [<span class="num">57</span>]  = __x64_sys_fork,
+    [<span class="num">59</span>]  = __x64_sys_execve,
+    [<span class="num">60</span>]  = __x64_sys_exit,
+    <span class="cm">/* ... 共 ~450 个 */</span>
+};</pre>
+
+<h2 id="table">6.3 系统调用号是如何"生长"的</h2>
+
+<p>新加系统调用必须<b>排在表尾</b>，编号永不重用，这是 ABI 稳定的关键。</p>
+
+<pre class="code-bash"><span class="cm">$ wc -l arch/x86/entry/syscalls/syscall_64.tbl</span>
+<span class="num">446</span> arch/x86/entry/syscalls/syscall_64.tbl
+
+<span class="cm">$ tail -5 arch/x86/entry/syscalls/syscall_64.tbl</span>
+<span class="num">449</span>     common  futex_waitv             sys_futex_waitv
+<span class="num">450</span>     common  set_mempolicy_home_node sys_set_mempolicy_home_node
+<span class="num">451</span>     common  cachestat               sys_cachestat
+<span class="num">452</span>     common  fchmodat2               sys_fchmodat2
+<span class="num">453</span>     common  map_shadow_stack        sys_map_shadow_stack
+</pre>
+
+<h2 id="vdso">6.4 vDSO — 不进内核的"系统调用"</h2>
+
+<p>有些"系统调用"<b>不需要切到内核态</b>就能完成，比如 <code>gettimeofday()</code>。Linux 把一段内核代码映射到每个进程地址空间，称为 vDSO：</p>
+
+<pre class="code-bash">cat /proc/self/maps | grep vdso
+<span class="cm"># 7ffd...000-7ffd...000 r-xp 00000000 00:00 0    [vdso]</span>
+
+<span class="cm"># gettimeofday() 直接调用 vDSO 里的代码 → 不切环 → 极快</span>
+</pre>
+
+<p>内核把当前时间放在一段共享内存里，vDSO 函数直接读这段内存。</p>
+
+<h2 id="seccomp">6.5 seccomp — 系统调用过滤器</h2>
+
+<p>容器、浏览器沙箱用 seccomp 限制进程<b>能调用哪些 syscall</b>。</p>
+
+<pre class="code-c"><span class="cm">/* 用 BPF 过滤 syscall */</span>
+<span class="kw">struct</span> sock_filter filter[] = {
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(<span class="kw">struct</span> seccomp_data, nr)),
+    BPF_JUMP(BPF_JMP | BPF_JEQ, __NR_read,  <span class="num">0</span>, <span class="num">1</span>), BPF_STMT(BPF_RET, SECCOMP_RET_ALLOW),
+    BPF_JUMP(BPF_JMP | BPF_JEQ, __NR_write, <span class="num">0</span>, <span class="num">1</span>), BPF_STMT(BPF_RET, SECCOMP_RET_ALLOW),
+    BPF_STMT(BPF_RET, SECCOMP_RET_KILL),
+};
+prctl(PR_SET_NO_NEW_PRIVS, <span class="num">1</span>);
+prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog);
+<span class="cm">// 此后调用 open() 等会被立刻 KILL</span>
+</pre>
+
+<h2 id="custom">6.6 添加自定义系统调用 (实验)</h2>
+
+<pre class="code-bash"><span class="cm"># 1. 在 syscall_64.tbl 末尾加一行</span>
+<span class="num">454</span>   common  hello_kernel    sys_hello_kernel
+
+<span class="cm"># 2. 在 kernel/sys.c 加实现</span>
+SYSCALL_DEFINE1(hello_kernel, char __user *, name) {
+    char buf[<span class="num">64</span>];
+    <span class="kw">if</span> (strncpy_from_user(buf, name, <span class="num">63</span>) < <span class="num">0</span>)
+        <span class="kw">return</span> -EFAULT;
+    pr_info(<span class="str">"Hello, %s! From kernel.\n"</span>, buf);
+    <span class="kw">return</span> <span class="num">0</span>;
+}
+
+<span class="cm"># 3. include/linux/syscalls.h 加声明</span>
+asmlinkage <span class="kw">long</span> sys_hello_kernel(<span class="kw">const char</span> __user *name);
+
+<span class="cm"># 4. 重新编译内核 + 启动 QEMU</span>
+
+<span class="cm"># 5. 用户态调用</span>
+syscall(<span class="num">454</span>, <span class="str">"world"</span>);
+<span class="cm"># dmesg | tail   → Hello, world! From kernel.</span>
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../05-文件系统/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../07-设备驱动/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

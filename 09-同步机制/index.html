@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 · 同步机制 — 自旋锁、Mutex、RCU、Memory Barriers — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html" class="active">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">09</span>同步机制 — 自旋锁、Mutex、RCU、Memory Barriers</h1>
+
+
+<p>SMP 时代，"并发即正义，并发即灾难"。本章覆盖从<b>原子操作</b>到 <b>RCU</b> 的完整同步谱系，并教你选锁。</p>
+
+<h2 id="why">9.1 为什么需要同步</h2>
+
+<div class="callout danger">
+<div class="label">三种"看起来好但其实坏"的代码</div>
+<ol>
+<li><b>没保护的全局变量</b>：<code>counter++</code> 实际是 read-modify-write 三步，多核同时执行结果错乱</li>
+<li><b>错误的双重检查</b>：<code>if (!ptr) ptr = alloc();</code> 多核可能 alloc 多次</li>
+<li><b>遗漏 barrier</b>：编译器 / CPU 乱序 → 用户看到"不可能"的状态</li>
+</ol>
+</div>
+
+<h2 id="atomic">9.2 原子操作 — 基石</h2>
+
+<pre class="code-c"><span class="kw">#include</span> &lt;linux/atomic.h&gt;
+
+atomic_t v = ATOMIC_INIT(<span class="num">0</span>);
+
+atomic_inc(&v);              <span class="cm">// v++</span>
+atomic_dec(&v);              <span class="cm">// v--</span>
+atomic_add(<span class="num">5</span>, &v);          <span class="cm">// v += 5</span>
+atomic_read(&v);             <span class="cm">// 读取 (READ_ONCE)</span>
+atomic_set(&v, <span class="num">0</span>);          <span class="cm">// 写入 (WRITE_ONCE)</span>
+
+<span class="cm">// 返回旧值/新值的版本</span>
+<span class="kw">int</span> old = atomic_xchg(&v, <span class="num">10</span>);
+<span class="kw">int</span> old = atomic_cmpxchg(&v, expect, <span class="num">10</span>);
+
+<span class="cm">// 检查零 (常用于引用计数)</span>
+<span class="kw">if</span> (atomic_dec_and_test(&v)) {
+    <span class="cm">// v 减 1 后等于 0 → 安全释放</span>
+    kfree(obj);
+}
+</pre>
+
+<p>原子操作在 x86 上对应 <code>LOCK</code> 前缀指令（如 <code>lock incl</code>），保证 cache line 独占。</p>
+
+<h2 id="spinlock">9.3 自旋锁 (spinlock) — 短临界区</h2>
+
+<pre class="code-c">DEFINE_SPINLOCK(my_lock);
+
+<span class="cm">/* 不能在持锁时 sleep / 调度 — 中断/软中断仍可发生 */</span>
+spin_lock(&my_lock);
+... critical section ...
+spin_unlock(&my_lock);
+
+<span class="cm">/* 中断处理也用此锁? 必须用 _irqsave 版本 */</span>
+<span class="kw">unsigned long</span> flags;
+spin_lock_irqsave(&my_lock, flags);
+...
+spin_unlock_irqrestore(&my_lock, flags);
+</pre>
+
+<div class="callout warn">
+<div class="label">为什么自旋锁的临界区不能 sleep</div>
+<p>持自旋锁时，本 CPU <b>禁用抢占</b>。若 sleep → 另一进程跑上来 → 也试图拿锁 → 等不到永远不让出 → <b>死锁</b>。
+所以自旋锁的代码内：不能调 <code>schedule()</code>，不能 <code>kmalloc(GFP_KERNEL)</code>（可能回收 → 可能 sleep），不能 <code>copy_to_user</code>（可能缺页 → 可能 sleep）。</p>
+</div>
+
+<h2 id="mutex">9.4 mutex / semaphore — 长临界区</h2>
+
+<pre class="code-c">DEFINE_MUTEX(big_lock);
+
+mutex_lock(&big_lock);       <span class="cm">// 拿不到 → 睡眠</span>
+mutex_lock_interruptible(&big_lock);  <span class="cm">// 可被信号中断</span>
+mutex_trylock(&big_lock);    <span class="cm">// 立刻返回，不睡</span>
+... critical section (允许 sleep!) ...
+mutex_unlock(&big_lock);
+</pre>
+
+<h2 id="rwlock">9.5 读写锁与 seqlock</h2>
+
+<pre class="code-c"><span class="cm">/* rwlock — 多读单写 (适合读多写少) */</span>
+DEFINE_RWLOCK(my_rwlock);
+read_lock(&my_rwlock);   ... read_unlock(&my_rwlock);
+write_lock(&my_rwlock);  ... write_unlock(&my_rwlock);
+
+<span class="cm">/* seqlock — 写优先，读可重试 (jiffies/xtime 用这个) */</span>
+seqlock_t timer_lock;
+<span class="kw">unsigned</span> seq;
+<span class="kw">do</span> {
+    seq = read_seqbegin(&timer_lock);
+    ... 读多个字段 ...
+} <span class="kw">while</span> (read_seqretry(&timer_lock, seq));  <span class="cm">// 写者来过 → 重读</span>
+</pre>
+
+<h2 id="rcu">9.6 RCU — Read-Copy-Update（内核同步皇冠）</h2>
+
+<div class="callout deep">
+<div class="label">RCU 一句话原理</div>
+<p>读者<b>完全无锁、零开销</b>。写者<b>不修改</b>共享数据，而是<b>复制一份</b>、修改副本、原子地<b>替换指针</b>。
+旧版本数据等所有"<b>当时在读"的进程都退出</b>（grace period）后再释放。</p>
+</div>
+
+<pre class="code-c"><span class="cm">/* 读 — 极度便宜 */</span>
+rcu_read_lock();      <span class="cm">// 只是禁用抢占,几乎零开销</span>
+<span class="kw">struct</span> foo *p = rcu_dereference(global_ptr);
+<span class="kw">if</span> (p) use(p->data);
+rcu_read_unlock();
+
+<span class="cm">/* 写 — 复制-修改-替换 */</span>
+<span class="kw">struct</span> foo *new = kmalloc(<span class="kw">sizeof</span>(*new), GFP_KERNEL);
+*new = *old_ptr;
+new->data = <span class="num">42</span>;
+rcu_assign_pointer(global_ptr, new);   <span class="cm">// 原子替换</span>
+synchronize_rcu();    <span class="cm">// 等所有读者退出 (老进程完成 read)</span>
+kfree(old);           <span class="cm">// 安全释放</span>
+
+<span class="cm">/* 或异步版本 (推荐用于热路径) */</span>
+call_rcu(&old->rcu_head, free_callback);
+</pre>
+
+<p><b>RCU 用在哪：</b>路由表、cgroup 链表、dentry 缓存、内核模块列表、IDR、percpu 数据……几乎所有"读多写少"场景。</p>
+
+<h2 id="percpu">9.7 Per-CPU 变量 — 彻底避免共享</h2>
+
+<pre class="code-c">DEFINE_PER_CPU(<span class="kw">long</span>, my_counter);     <span class="cm">// 每个 CPU 一份独立的 my_counter</span>
+
+<span class="cm">/* 读写本 CPU 的变量 (需禁抢占) */</span>
+preempt_disable();
+this_cpu_inc(my_counter);
+preempt_enable();
+
+<span class="cm">/* 读所有 CPU 累加 */</span>
+<span class="kw">long</span> total = <span class="num">0</span>;
+<span class="kw">int</span> cpu;
+for_each_possible_cpu(cpu)
+    total += per_cpu(my_counter, cpu);
+</pre>
+
+<h2 id="barrier">9.8 内存屏障 (Memory Barriers)</h2>
+
+<pre class="code-c"><span class="cm">/* 编译器屏障 — 仅禁止编译器重排 */</span>
+barrier();
+
+<span class="cm">/* CPU 屏障 (x86 上前两个是空操作，arm/ppc 上有真指令) */</span>
+smp_rmb();           <span class="cm">// 读屏障</span>
+smp_wmb();           <span class="cm">// 写屏障</span>
+smp_mb();            <span class="cm">// 全屏障</span>
+
+<span class="cm">/* 典型场景: 单生产者单消费者环形队列 */</span>
+<span class="cm">// 生产者</span>
+ring[head] = data;
+smp_wmb();           <span class="cm">// 确保数据先写入,再更新 head</span>
+WRITE_ONCE(ring->head, head+<span class="num">1</span>);
+
+<span class="cm">// 消费者</span>
+<span class="kw">while</span> (READ_ONCE(ring->tail) == READ_ONCE(ring->head)) <span class="kw">continue</span>;
+smp_rmb();           <span class="cm">// 确保读到 head 后再读数据</span>
+data = ring[tail];
+</pre>
+
+<h2 id="futex">9.9 futex — 用户态锁的内核基础</h2>
+
+<p>pthread_mutex 性能秘诀：<b>无竞争时纯用户态原子操作，有竞争时才陷入内核 futex_wait</b>。</p>
+
+<pre class="code-c"><span class="cm">/* 简化的伪代码 */</span>
+mutex_lock(m):
+    <span class="kw">if</span> (atomic_cmpxchg(&m->state, <span class="num">0</span>, <span class="num">1</span>) == <span class="num">0</span>)
+        <span class="kw">return</span>;            <span class="cm">// 快路径: 纯用户态!</span>
+    futex(&m->state, FUTEX_WAIT, <span class="num">1</span>, ...);  <span class="cm">// 慢路径: 进内核睡</span>
+
+mutex_unlock(m):
+    <span class="kw">if</span> (atomic_xchg(&m->state, <span class="num">0</span>) == <span class="num">1</span>)
+        <span class="kw">return</span>;
+    futex(&m->state, FUTEX_WAKE, <span class="num">1</span>, ...);  <span class="cm">// 唤醒一个</span>
+</pre>
+
+<h2 id="choose">9.10 选锁速查表</h2>
+
+<table>
+<tr><th>场景</th><th>推荐</th></tr>
+<tr><td>临界区 &lt; 100ns，不睡</td><td>spinlock</td></tr>
+<tr><td>会 sleep / 持锁久</td><td>mutex</td></tr>
+<tr><td>读极多写极少</td><td>RCU</td></tr>
+<tr><td>读多写少但写不能等</td><td>rwlock / seqlock</td></tr>
+<tr><td>计数 / 统计</td><td>atomic_t 或 percpu</td></tr>
+<tr><td>等待事件</td><td>wait_queue + completion</td></tr>
+<tr><td>多个锁需要按序</td><td>mutex_lock_nested + lockdep</td></tr>
+</table>
+
+<h2 id="lockdep">9.11 lockdep — 死锁检测器</h2>
+
+<p>CONFIG_PROVE_LOCKING 开启后，内核运行时记录每把锁的获取顺序。一旦发现<b>潜在</b>死锁（哪怕这次没真死），立刻 dmesg 大字报：</p>
+
+<pre class="code-bash">[ <span class="num">1234.5</span>] ======================================================
+[ <span class="num">1234.5</span>] WARNING: possible recursive locking detected
+[ <span class="num">1234.5</span>] ...
+[ <span class="num">1234.5</span>] Possible unsafe locking scenario:
+[ <span class="num">1234.5</span>]   CPU0
+[ <span class="num">1234.5</span>]   ----
+[ <span class="num">1234.5</span>]   lock(&inode->i_mutex);
+[ <span class="num">1234.5</span>]   lock(&inode->i_mutex);
+[ <span class="num">1234.5</span>] *** DEADLOCK ***
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../08-网络子系统/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../10-CFS调度器/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

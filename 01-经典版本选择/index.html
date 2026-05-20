@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · 经典版本选择 — 为什么是 0.11 + 2.6 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html" class="active">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">01</span>经典版本选择 — 为什么是 0.11 + 2.6</h1>
+
+
+<p>本章回答一个学习者最关心的问题：<b>"3000 万行代码的内核，我到底该读哪个版本？"</b></p>
+
+<div class="callout deep">
+<div class="label">一句话答案</div>
+<p>主读 <b>Linux 0.11</b>（14k 行，可全读完），辅读 <b>Linux 2.6.0</b>（80 万行，对照学现代框架），关注 <b>5.x/6.x</b> 的特定子系统（专题学习）。</p>
+</div>
+
+<h2 id="why">为什么不直接读最新版?</h2>
+<table>
+<tr><th>版本</th><th>发布年</th><th>代码行数</th><th>读完时间估计</th><th>适合阶段</th></tr>
+<tr><td>0.01</td><td>1991</td><td>~10,000</td><td>—</td><td>残缺品，不推荐</td></tr>
+<tr><td><b>0.11</b></td><td>1991</td><td><b>~14,000</b></td><td><b>2~3 月可读完</b></td><td><b>★ 入门首选</b></td></tr>
+<tr><td>0.99</td><td>1993</td><td>~50,000</td><td>—</td><td>已无人维护资料</td></tr>
+<tr><td>1.0</td><td>1994</td><td>~170,000</td><td>太长</td><td>跳过</td></tr>
+<tr><td>2.4.0</td><td>2001</td><td>~3,000,000</td><td>不可能</td><td>查阅</td></tr>
+<tr><td><b>2.6.0</b></td><td>2003</td><td><b>~5,900,000</b></td><td>专题读，3~6 月</td><td><b>★ 现代框架对照</b></td></tr>
+<tr><td>3.x</td><td>2011</td><td>~15,000,000</td><td>太长</td><td>专题</td></tr>
+<tr><td>5.x</td><td>2019</td><td>~28,000,000</td><td>太长</td><td>专题</td></tr>
+<tr><td>6.x</td><td>2022</td><td>~33,000,000+</td><td>太长</td><td>专题</td></tr>
+</table>
+
+<h2 id="011">为什么 Linux 0.11 是黄金切入点</h2>
+<ol>
+    <li><b>麻雀虽小五脏俱全</b>：进程、内存、文件系统、TTY、磁盘 IO 全部有</li>
+    <li><b>线性结构清晰</b>：没有 RCU、没有 SMP、没有大量抽象层包装</li>
+    <li><b>能跑能调</b>：QEMU 上 1 秒启动，GDB 单步无障碍</li>
+    <li><b>中文资料完备</b>：赵炯《Linux 内核完全注释》逐行讲解</li>
+    <li><b>核心概念全部出现</b>：fork、调度、缺页、syscall、缓冲区、tty 行规范……</li>
+</ol>
+
+<h2 id="011-tree">Linux 0.11 源码目录结构</h2>
+<pre class="code-bash">linux-0.11/
+├── <span class="str">boot/</span>         <span class="cm"># 引导：bootsect.s + setup.s + head.s (实模式→保护模式)</span>
+├── <span class="str">init/</span>         <span class="cm"># main.c (内核入口、所有子系统初始化)</span>
+├── <span class="str">kernel/</span>       
+│   ├── sched.c       <span class="cm"># 调度器（仅 ~300 行!）</span>
+│   ├── fork.c        <span class="cm"># 进程创建</span>
+│   ├── exit.c        <span class="cm"># 进程退出</span>
+│   ├── signal.c      <span class="cm"># 信号机制</span>
+│   ├── system_call.s <span class="cm"># 系统调用入口（汇编）</span>
+│   ├── traps.c       <span class="cm"># 异常处理</span>
+│   ├── blk_drv/      <span class="cm"># 块设备驱动 (硬盘、软盘、ram disk)</span>
+│   ├── chr_drv/      <span class="cm"># 字符设备驱动 (tty、串口、键盘)</span>
+│   └── math/         <span class="cm"># 数学协处理器仿真</span>
+├── <span class="str">mm/</span>           <span class="cm"># 内存管理</span>
+│   ├── memory.c      <span class="cm"># 页面分配、缺页处理</span>
+│   └── page.s        <span class="cm"># 缺页异常入口（汇编）</span>
+├── <span class="str">fs/</span>           <span class="cm"># 文件系统 (Minix FS)</span>
+│   ├── inode.c       <span class="cm"># inode 管理</span>
+│   ├── buffer.c      <span class="cm"># 缓冲块管理</span>
+│   ├── file_table.c  <span class="cm"># 文件表</span>
+│   ├── namei.c       <span class="cm"># 路径解析</span>
+│   ├── read_write.c  <span class="cm"># 读写</span>
+│   └── ... 等 20+ 个文件
+├── <span class="str">lib/</span>          <span class="cm"># 内核内 C 库 (close, exit, dup ...)</span>
+├── <span class="str">include/</span>      <span class="cm"># 头文件</span>
+└── <span class="str">tools/</span>        <span class="cm"># build 工具</span>
+</pre>
+
+<h2 id="2.6">为什么 2.6.0 是现代内核的"创世版"</h2>
+
+<p>2.6 在 2003 年发布，相对 2.4 是一次<b>大规模框架重构</b>，奠定了至今未变的核心架构：</p>
+
+<table>
+<tr><th>子系统</th><th>2.4 (旧)</th><th>2.6 (现代框架)</th><th>之后版本</th></tr>
+<tr><td>调度器</td><td>O(n) 遍历</td><td><b>O(1) 调度器</b></td><td>2.6.23 起换成 CFS</td></tr>
+<tr><td>内存</td><td>简单</td><td>NUMA、反向映射 (rmap)</td><td>沿用</td></tr>
+<tr><td>文件系统</td><td>VFS 较简单</td><td><b>VFS 重构 + sysfs</b></td><td>沿用</td></tr>
+<tr><td>设备模型</td><td>各自为政</td><td><b>kobject / sysfs 统一</b></td><td>沿用</td></tr>
+<tr><td>线程</td><td>LinuxThreads</td><td><b>NPTL (futex 基础)</b></td><td>沿用</td></tr>
+<tr><td>同步</td><td>仅 spinlock/sem</td><td><b>RCU 大量引入</b></td><td>沿用并扩展</td></tr>
+<tr><td>抢占</td><td>非抢占</td><td><b>CONFIG_PREEMPT 可选</b></td><td>沿用</td></tr>
+</table>
+
+<h2 id="task_struct">直观对比：task_struct 的演化</h2>
+<div class="compare">
+<div>
+<h4>Linux 0.11 <code>task_struct</code> (~50 字段)</h4>
+<pre class="code-c"><span class="kw">struct</span> task_struct {
+    <span class="kw">long</span> state;          <span class="cm">// 状态</span>
+    <span class="kw">long</span> counter;        <span class="cm">// 剩余时间片</span>
+    <span class="kw">long</span> priority;
+    <span class="kw">long</span> signal;
+    <span class="kw">struct</span> sigaction sigaction[<span class="num">32</span>];
+    <span class="kw">long</span> blocked;
+    <span class="kw">int</span> exit_code;
+    <span class="kw">unsigned long</span> start_code, end_code, end_data;
+    <span class="kw">unsigned long</span> brk, start_stack;
+    <span class="kw">long</span> pid, father, pgrp, session, leader;
+    <span class="kw">unsigned short</span> uid, euid, suid;
+    <span class="kw">unsigned short</span> gid, egid, sgid;
+    <span class="kw">long</span> alarm;
+    <span class="kw">long</span> utime, stime, cutime, cstime, start_time;
+    <span class="kw">unsigned short</span> used_math;
+    <span class="kw">int</span> tty;
+    <span class="kw">unsigned short</span> umask;
+    <span class="kw">struct</span> m_inode *pwd, *root, *executable;
+    <span class="kw">unsigned long</span> close_on_exec;
+    <span class="kw">struct</span> file *filp[NR_OPEN];   <span class="cm">// 仅 20 个文件！</span>
+    <span class="kw">struct</span> desc_struct ldt[<span class="num">3</span>];
+    <span class="kw">struct</span> tss_struct tss;          <span class="cm">// 硬件 TSS 切换</span>
+};</pre>
+</div>
+<div>
+<h4>Linux 6.x <code>task_struct</code> (~400 字段)</h4>
+<pre class="code-c"><span class="kw">struct</span> task_struct {
+    <span class="cm">/* 状态、栈、调度 */</span>
+    <span class="kw">unsigned int</span> __state;
+    <span class="kw">void</span> *stack;
+    <span class="kw">int</span> on_cpu, prio, static_prio, normal_prio;
+    <span class="kw">struct</span> sched_entity se;   <span class="cm">// CFS 实体</span>
+    <span class="kw">struct</span> sched_rt_entity rt; <span class="cm">// RT 实体</span>
+    <span class="kw">struct</span> sched_dl_entity dl; <span class="cm">// Deadline 实体</span>
+    
+    <span class="cm">/* 内存 */</span>
+    <span class="kw">struct</span> mm_struct *mm, *active_mm;
+    
+    <span class="cm">/* PID 命名空间 (容器关键) */</span>
+    <span class="kw">struct</span> pid *thread_pid;
+    <span class="kw">struct</span> nsproxy *nsproxy;
+    
+    <span class="cm">/* 文件、信号、IPC */</span>
+    <span class="kw">struct</span> files_struct *files;
+    <span class="kw">struct</span> fs_struct *fs;
+    <span class="kw">struct</span> signal_struct *signal;
+    
+    <span class="cm">/* SMP、CPU 亲和性、cgroup */</span>
+    cpumask_t cpus_mask;
+    <span class="kw">struct</span> css_set *cgroups;
+    
+    <span class="cm">/* perf、ftrace、tracing 钩子 */</span>
+    <span class="kw">struct</span> perf_event_context *perf_event_ctxp[];
+    
+    <span class="cm">/* ……还有 ~300 个字段 */</span>
+};</pre>
+</div>
+</div>
+
+<h2 id="strategy">推荐阅读策略</h2>
+
+<div class="callout tip">
+<div class="label">"对照阅读法"</div>
+<p>读 2.6 时，每打开一个文件，<b>先回忆 0.11 对应文件做了什么</b>，再看 2.6 在此基础上加了什么。这样不会迷失在抽象层里。</p>
+<p>示例：读 <code>2.6/kernel/sched.c</code> 时，先回忆 <code>0.11/kernel/sched.c</code> 的简陋调度，再看 2.6 的 O(1) 是如何分两个 priority array 实现的。</p>
+</div>
+
+<h3>三种学习者的最优策略</h3>
+<table>
+<tr><th>背景</th><th>推荐策略</th></tr>
+<tr><td>毫无 OS 基础</td><td>先读《操作系统精髓》→ 再 0.11 精读 → 再 2.6 对照</td></tr>
+<tr><td>有 OS 课程基础</td><td>直接 0.11 精读 (2 个月) → 2.6 专题 → 选修 5.x/6.x 专题</td></tr>
+<tr><td>已写过驱动</td><td>跳过 0.11 部分；2.6 文件系统 + 网络 + 内存 直接深入</td></tr>
+</table>
+
+<h2 id="srctools">在线源码导航工具</h2>
+
+<div class="callout tip">
+<div class="label">⚡ 神器：Bootlin Elixir Cross-Referencer</div>
+<p><a href="https://elixir.bootlin.com/linux/v6.6/source">https://elixir.bootlin.com/linux/v6.6/source</a></p>
+<ul>
+<li>任意符号点击跳转定义 / 引用</li>
+<li>可以在版本之间切换（v0.11 / v2.6.39 / v6.6 都支持）</li>
+<li>比本地 ctags + vim 更直观，<b>强烈推荐设为浏览器主页</b></li>
+</ul>
+</div>
+
+<pre class="code-bash"><span class="cm"># 本地: 用 cscope 建立索引（适合离线深度浏览）</span>
+cd linux-source
+find . -name <span class="str">"*.[chS]"</span> > cscope.files
+cscope -bkq
+<span class="cm"># 在 vim 中 :cs find s symbol_name 即可跳转</span>
+</pre>
+
+
+<footer class="page-footer">
+    <p><a href="../index.html">总目录</a> · <a href="../02-环境搭建/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>
