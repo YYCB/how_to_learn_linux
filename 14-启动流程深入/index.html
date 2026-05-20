@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>14 · 启动流程 — BIOS / UEFI 到 systemd — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html" class="active">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">14</span>启动流程 — BIOS / UEFI 到 systemd</h1>
+
+
+<p>"按下电源到看见登录提示符"之间，<b>发生了 12 个关键阶段</b>。本章逐阶段拆解，让你彻底理解 Linux 是如何"自举"起来的。</p>
+
+<h2 id="overview">14.1 启动全景</h2>
+
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 460" font-family="-apple-system,sans-serif" font-size="11">
+<defs><marker id="ar14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ff7b29"/></marker></defs>
+<text x="400" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#ff7b29">从按电源到 shell 提示符的 12 阶段</text>
+
+<g font-size="11">
+<rect x="20" y="40" width="760" height="34" rx="4" fill="#1a2028" stroke="#f85149"/>
+<text x="14" y="62" fill="#f85149" font-weight="700" font-size="13" transform="translate(20,0)">① 上电 / RESET</text>
+<text x="180" y="62" fill="#8b949e">CPU 从复位向量 0xFFFFFFF0 (BIOS) 或 SEC (UEFI) 开始执行</text>
+
+<line x1="400" y1="74" x2="400" y2="84" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="84" width="760" height="34" rx="4" fill="#1a2028" stroke="#ff7b29"/>
+<text x="14" y="106" fill="#ff7b29" font-weight="700" font-size="13" transform="translate(20,0)">② 固件 (BIOS / UEFI)</text>
+<text x="190" y="106" fill="#8b949e">POST 自检 → 加载 MBR (0x7C00) 或 EFI System Partition → 启动管理器</text>
+
+<line x1="400" y1="118" x2="400" y2="128" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="128" width="760" height="34" rx="4" fill="#1a2028" stroke="#e3b341"/>
+<text x="14" y="150" fill="#e3b341" font-weight="700" font-size="13" transform="translate(20,0)">③ Bootloader (GRUB)</text>
+<text x="200" y="150" fill="#8b949e">GRUB 读 /boot/grub.cfg → 显示菜单 → 加载 vmlinuz + initramfs</text>
+
+<line x1="400" y1="162" x2="400" y2="172" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="172" width="760" height="34" rx="4" fill="#1a2028" stroke="#56d364"/>
+<text x="14" y="194" fill="#56d364" font-weight="700" font-size="13" transform="translate(20,0)">④ 内核解压</text>
+<text x="150" y="194" fill="#8b949e">arch/x86/boot/compressed/ — bzImage 自解压到运行地址</text>
+
+<line x1="400" y1="206" x2="400" y2="216" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="216" width="760" height="34" rx="4" fill="#1a2028" stroke="#56d364"/>
+<text x="14" y="238" fill="#56d364" font-weight="700" font-size="13" transform="translate(20,0)">⑤ 实模式 → 保护模式 → 长模式</text>
+<text x="270" y="238" fill="#8b949e">建临时页表、启用 CR0.PG、跳到 64 位代码段</text>
+
+<line x1="400" y1="250" x2="400" y2="260" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="260" width="760" height="34" rx="4" fill="#1a2028" stroke="#58a6ff"/>
+<text x="14" y="282" fill="#58a6ff" font-weight="700" font-size="13" transform="translate(20,0)">⑥ start_kernel()</text>
+<text x="180" y="282" fill="#8b949e">init/main.c — 各子系统按顺序初始化 (sched, mm, vfs, irq...)</text>
+
+<line x1="400" y1="294" x2="400" y2="304" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="304" width="760" height="34" rx="4" fill="#1a2028" stroke="#58a6ff"/>
+<text x="14" y="326" fill="#58a6ff" font-weight="700" font-size="13" transform="translate(20,0)">⑦ rest_init → init (pid 1)</text>
+<text x="220" y="326" fill="#8b949e">创建 init 内核线程, 之后切到 idle 当 pid 0</text>
+
+<line x1="400" y1="338" x2="400" y2="348" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="348" width="760" height="34" rx="4" fill="#1a2028" stroke="#bc8cff"/>
+<text x="14" y="370" fill="#bc8cff" font-weight="700" font-size="13" transform="translate(20,0)">⑧ initramfs 解压 + 运行 /init</text>
+<text x="270" y="370" fill="#8b949e">挂载真正根文件系统, 加载存储/网络驱动</text>
+
+<line x1="400" y1="382" x2="400" y2="392" stroke="#ff7b29" marker-end="url(#ar14)"/>
+
+<rect x="20" y="392" width="760" height="34" rx="4" fill="#1a2028" stroke="#e3b341"/>
+<text x="14" y="414" fill="#e3b341" font-weight="700" font-size="13" transform="translate(20,0)">⑨ switch_root → /sbin/init (systemd)</text>
+<text x="290" y="414" fill="#8b949e">扔掉 initramfs, 跳到真实 init, 启动各 service</text>
+
+<rect x="20" y="430" width="760" height="20" rx="4" fill="#1a2028" stroke="#56d364"/>
+<text x="14" y="446" fill="#56d364" font-weight="700" transform="translate(20,0)">⑩~⑫ systemd target → getty → login → shell</text>
+</g>
+</svg>
+</div>
+
+<h2 id="uefi">14.2 UEFI vs Legacy BIOS</h2>
+
+<table>
+<tr><th>对比</th><th>Legacy BIOS</th><th>UEFI</th></tr>
+<tr><td>启动方式</td><td>MBR (446B 引导代码)</td><td>EFI System Partition (FAT32)</td></tr>
+<tr><td>磁盘上限</td><td>2 TB (MBR)</td><td>9.4 ZB (GPT)</td></tr>
+<tr><td>启动代码语言</td><td>16 位汇编</td><td>C (UEFI 应用)</td></tr>
+<tr><td>Secure Boot</td><td>无</td><td>支持 (RSA 签名校验)</td></tr>
+<tr><td>启动菜单</td><td>需 bootloader</td><td>固件内置</td></tr>
+<tr><td>内核接口</td><td>real-mode call</td><td>EFI Runtime Services</td></tr>
+</table>
+
+<h3>EFI Stub — 不需要 GRUB 也能启动</h3>
+<p>现代 Linux 内核内嵌 "EFI stub"，本身就是一个 EFI 应用，可被 UEFI 固件直接执行：</p>
+<pre class="code-bash"><span class="cm"># 把 vmlinuz 复制到 ESP，UEFI 启动菜单加一条即可，无需 GRUB</span>
+cp /boot/vmlinuz /boot/efi/EFI/Linux/
+efibootmgr -c -d /dev/nvme0n1 -p <span class="num">1</span> -L <span class="str">"Linux"</span> -l <span class="str">"/EFI/Linux/vmlinuz"</span> \\
+    -u <span class="str">"root=/dev/nvme0n1p2 ro initrd=\\EFI\\Linux\\initrd"</span>
+</pre>
+
+<h2 id="grub">14.3 GRUB 2 的多阶段启动</h2>
+
+<pre class="code-bash"><span class="cm"># GRUB 分多阶段是因为 MBR 只有 446 字节, 装不下完整代码</span>
+
+Stage <span class="num">1</span>:  MBR (446 B) → 加载 stage 1.5
+Stage <span class="num">1.5</span>: 紧跟 MBR 的扇区 → 包含 fs 驱动 (能读 ext4 等)
+Stage <span class="num">2</span>:  从 /boot/grub/ 加载完整 GRUB 代码 + grub.cfg
+        → 显示启动菜单 → 加载 kernel + initramfs → boot
+</pre>
+
+<h2 id="initramfs">14.4 initramfs — 为什么需要</h2>
+
+<div class="callout deep">
+<div class="label">"鸡生蛋"问题</div>
+<p>内核需要根文件系统（如 ext4 on LVM on /dev/nvme0n1p2）才能跑用户程序，
+但<b>挂载根文件系统需要先加载 LVM、文件系统、磁盘驱动</b>，而这些是<b>用户态 mkfs/lvm 命令配合的</b>。
+解决：把这些工具打包成一个最小镜像 initramfs，内核先用它，准备好后再切换到真根。</p>
+</div>
+
+<pre class="code-bash"><span class="cm"># 查看你的 initramfs</span>
+lsinitramfs /boot/initrd.img-$(uname -r) | head
+
+<span class="cm"># 解包看</span>
+mkdir /tmp/initrd && cd /tmp/initrd
+zcat /boot/initrd.img-$(uname -r) | cpio -idmv
+
+ls
+<span class="cm"># bin etc init lib lib64 proc root run sbin sys usr var</span>
+</pre>
+
+<h2 id="start_kernel">14.5 start_kernel() 初始化顺序</h2>
+
+<pre class="code-c"><span class="cm">/* init/main.c — 简化版执行顺序 */</span>
+asmlinkage <span class="kw">__visible</span> <span class="kw">void</span> __init <span class="fn">start_kernel</span>(<span class="kw">void</span>) {
+    set_task_stack_end_magic(&init_task);
+    smp_setup_processor_id();
+    boot_cpu_init();             <span class="cm">// 标记 CPU 0 上线</span>
+
+    page_address_init();         <span class="cm">// 页地址映射</span>
+    early_security_init();
+    setup_arch(&command_line);   <span class="cm">// 架构相关初始化</span>
+    setup_command_line(command_line);
+    setup_per_cpu_areas();
+    smp_prepare_boot_cpu();
+
+    build_all_zonelists(NULL);
+    page_alloc_init();
+    pr_notice(<span class="str">"Kernel command line: %s\n"</span>, saved_command_line);
+
+    setup_log_buf(<span class="num">0</span>);
+    vfs_caches_init_early();     <span class="cm">// dcache/icache</span>
+    sort_main_extable();
+    trap_init();                 <span class="cm">// 设置 IDT</span>
+    mm_init();                   <span class="cm">// ★ 内存管理</span>
+
+    sched_init();                <span class="cm">// ★ 调度器</span>
+    preempt_disable();
+    local_irq_disable();
+    radix_tree_init();
+    
+    early_irq_init();
+    init_IRQ();                  <span class="cm">// 中断子系统</span>
+    tick_init();
+    rcu_init();
+    init_timers();
+    hrtimers_init();
+
+    local_irq_enable();          <span class="cm">// ★ 终于开中断</span>
+
+    console_init();              <span class="cm">// 现在能 printk 到屏幕</span>
+
+    proc_root_init();
+    cgroup_init();
+    fork_init();
+    proc_caches_init();
+    buffer_init();
+    security_init();
+    vfs_caches_init();           <span class="cm">// ★ VFS 完整初始化</span>
+    signals_init();
+
+    rest_init();                 <span class="cm">// 创建 pid 1 后变 idle</span>
+}
+</pre>
+
+<h2 id="kaslr">14.6 KASLR — 内核地址随机化</h2>
+
+<p>内核启动时把自己<b>随机加载到不同的虚拟地址</b>，让攻击者无法靠固定地址 ROP：</p>
+
+<pre class="code-bash"><span class="cm"># 看当前内核基址</span>
+sudo cat /proc/kallsyms | head -<span class="num">1</span>
+<span class="cm"># ffffffff8e600000 T startup_64</span>
+
+<span class="cm"># 重启后再看 → 地址会变 (除非禁用)</span>
+<span class="cm"># 关闭 KASLR (调试用)</span>
+<span class="cm"># 在 cmdline 加 nokaslr</span>
+</pre>
+
+<h2 id="systemd">14.7 systemd — 现代 init</h2>
+
+<p>systemd 取代了传统 SysV init / Upstart，特点：</p>
+<ul>
+<li><b>并行启动</b>：服务依赖图，无依赖的服务并发起</li>
+<li><b>按需 (socket-activation)</b>：服务先不起，端口连接时再起</li>
+<li><b>cgroup 直接集成</b>：每个 service 自动一个 cgroup</li>
+<li><b>统一日志 journald</b>：结构化日志</li>
+</ul>
+
+<pre class="code-bash">systemctl status                <span class="cm"># 当前 target</span>
+systemctl list-dependencies     <span class="cm"># 依赖树</span>
+systemd-analyze blame           <span class="cm"># 启动时间贡献排序</span>
+systemd-analyze critical-chain  <span class="cm"># 关键路径</span>
+journalctl -b -p err            <span class="cm"># 本次启动错误日志</span>
+</pre>
+
+
+<footer class="page-footer">
+    <p>← <a href="../13-中断与异常/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../15-内核调试与性能/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

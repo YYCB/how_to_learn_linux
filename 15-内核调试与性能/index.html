@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>15 · 内核调试与性能工具全景 — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html" class="active">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">15</span>内核调试与性能工具全景</h1>
+
+
+<p>本章是内核学习的"<b>百宝箱</b>"。掌握这些工具，你可以从"我也不知道哪里出问题了"升级到"我能精确定位到第几行"。</p>
+
+<h2 id="overview">15.1 工具全景</h2>
+
+<table>
+<tr><th>问题类型</th><th>首选工具</th><th>次选</th></tr>
+<tr><td>函数追踪 / 调用图</td><td><b>ftrace</b></td><td>perf / bpftrace</td></tr>
+<tr><td>CPU 性能热点</td><td><b>perf record</b></td><td>FlameGraph</td></tr>
+<tr><td>延迟 / 抖动</td><td><b>perf sched / bpftrace</b></td><td>ftrace latency tracers</td></tr>
+<tr><td>内存错误</td><td><b>KASAN</b></td><td>KFENCE, KMSAN</td></tr>
+<tr><td>锁竞争 / 死锁</td><td><b>lockdep + lockstat</b></td><td>—</td></tr>
+<tr><td>动态追踪生产</td><td><b>eBPF / bpftrace</b></td><td>kprobe</td></tr>
+<tr><td>崩溃事后分析</td><td><b>kdump + crash</b></td><td>—</td></tr>
+<tr><td>不停机修补</td><td><b>livepatch</b></td><td>—</td></tr>
+<tr><td>RCU 卡死</td><td><b>RCU stall detector</b></td><td>—</td></tr>
+</table>
+
+<h2 id="printk">15.2 printk — 最简单也最常用</h2>
+
+<pre class="code-c"><span class="cm">/* 日志级别 */</span>
+pr_emerg(...);    <span class="cm">// KERN_EMERG  0  系统不可用</span>
+pr_alert(...);    <span class="cm">// KERN_ALERT  1  立即处理</span>
+pr_crit(...);     <span class="cm">// KERN_CRIT   2  严重错误</span>
+pr_err(...);      <span class="cm">// KERN_ERR    3  错误</span>
+pr_warn(...);     <span class="cm">// KERN_WARNING 4 警告</span>
+pr_notice(...);   <span class="cm">// KERN_NOTICE 5  注意事项</span>
+pr_info(...);     <span class="cm">// KERN_INFO   6  信息</span>
+pr_debug(...);    <span class="cm">// KERN_DEBUG  7  调试</span>
+
+<span class="cm">/* 限速版本 — 防止刷屏 */</span>
+pr_warn_ratelimited(<span class="str">"oops happened %d times\n"</span>, count);
+
+<span class="cm">/* 一次性 — 只打印第一次 */</span>
+pr_warn_once(<span class="str">"deprecated API\n"</span>);
+</pre>
+
+<pre class="code-bash">dmesg --level=err,warn
+sudo dmesg -wH                  <span class="cm"># 实时跟踪，人类友好时间戳</span>
+echo <span class="num">7</span> > /proc/sys/kernel/printk    <span class="cm"># 显示所有级别</span>
+</pre>
+
+<h2 id="ftrace">15.3 ftrace — 内核内建追踪框架</h2>
+
+<pre class="code-bash"><span class="cm"># 1. 跟踪所有函数调用 (function tracer)</span>
+cd /sys/kernel/debug/tracing
+echo function > current_tracer
+cat trace_pipe | head
+
+<span class="cm"># 2. 函数图 (function_graph) — 看调用关系</span>
+echo function_graph > current_tracer
+echo sys_open > set_graph_function
+cat trace_pipe
+
+<span class="cm">#  3) cpu | duration | function</span>
+<span class="cm">#  0)               |  sys_open() {</span>
+<span class="cm">#  0)               |    do_sys_open() {</span>
+<span class="cm">#  0)   0.420 us    |      _raw_spin_lock();</span>
+<span class="cm">#  0)   1.250 us    |      do_filp_open() {</span>
+<span class="cm">#  0)   8.470 us    |    }</span>
+<span class="cm">#  0)  12.100 us    |  }</span>
+
+<span class="cm"># 3. 跟特定事件 (events)</span>
+echo <span class="num">1</span> > events/sched/sched_switch/enable
+echo <span class="num">1</span> > events/syscalls/sys_enter_open/enable
+
+<span class="cm"># 4. 过滤特定进程</span>
+echo $(pidof myapp) > set_ftrace_pid
+</pre>
+
+<h3>function_graph 的杀手锏</h3>
+<pre class="code-bash"><span class="cm"># 看哪个函数耗时最多 (按级排序输出)</span>
+echo function_graph > current_tracer
+echo nop > set_ftrace_filter
+echo nop > set_graph_function
+echo schedule > set_graph_function     <span class="cm"># 关注 schedule 子树</span>
+echo <span class="num">10000</span> > tracing_thresh             <span class="cm"># 只显示 &gt;10us 的</span>
+cat trace_pipe
+</pre>
+
+<h2 id="perf">15.4 perf — 性能分析瑞士军刀</h2>
+
+<pre class="code-bash"><span class="cm"># 实时看哪些函数 CPU 占用最高 (top)</span>
+sudo perf top
+
+<span class="cm"># 录制 30 秒采样</span>
+sudo perf record -F <span class="num">99</span> -a -g -- sleep <span class="num">30</span>
+sudo perf report                   <span class="cm"># 交互式 TUI</span>
+
+<span class="cm"># 输出火焰图 (Brendan Gregg)</span>
+git clone https://github.com/brendangregg/FlameGraph
+sudo perf script | ./FlameGraph/stackcollapse-perf.pl | ./FlameGraph/flamegraph.pl > flame.svg
+
+<span class="cm"># 跟踪特定事件 (PMU)</span>
+sudo perf stat -e cycles,instructions,cache-misses,branch-misses -- ./my_app
+
+<span class="cm"># 调度延迟</span>
+sudo perf sched record -- sleep <span class="num">5</span>
+sudo perf sched latency
+sudo perf sched map
+</pre>
+
+<h2 id="kasan">15.5 KASAN — 内存错误检测器</h2>
+
+<p>KASAN (Kernel Address Sanitizer) 用<b>影子内存</b>追踪每字节的访问权限，发现 use-after-free、越界、双释放等：</p>
+
+<pre class="code-bash"><span class="cm"># 编译内核时开启</span>
+CONFIG_KASAN=y
+CONFIG_KASAN_GENERIC=y
+
+<span class="cm"># 触发后 dmesg:</span>
+[ <span class="num">5.000</span>] ==================================================================
+[ <span class="num">5.000</span>] BUG: KASAN: use-after-free in foo+<span class="num">0x42</span>/<span class="num">0x100</span>
+[ <span class="num">5.000</span>] Read of size <span class="num">4</span> at addr ffff888008c4f1d8 by task qemu/<span class="num">1234</span>
+[ <span class="num">5.000</span>] Call Trace:
+[ <span class="num">5.000</span>]   foo+<span class="num">0x42</span>/<span class="num">0x100</span>
+[ <span class="num">5.000</span>]   bar+<span class="num">0x10</span>/<span class="num">0x20</span>
+[ <span class="num">5.000</span>] Freed by task <span class="num">1233</span>:        ←  谁释放的</span>
+[ <span class="num">5.000</span>]   kfree+...
+[ <span class="num">5.000</span>] Allocated by task <span class="num">1233</span>:    ←  谁分配的</span>
+</pre>
+
+<table>
+<tr><th>变种</th><th>开销</th><th>检测</th></tr>
+<tr><td>KASAN</td><td>2x 内存, 3x 慢</td><td>UAF、越界、double-free</td></tr>
+<tr><td>KFENCE</td><td>几乎零开销</td><td>采样式检测，可上生产</td></tr>
+<tr><td>KMSAN</td><td>4x 内存, 5x 慢</td><td>未初始化内存读</td></tr>
+<tr><td>UBSAN</td><td>低</td><td>未定义行为 (溢出、错位移位等)</td></tr>
+</table>
+
+<h2 id="lockdep">15.6 lockdep — 在死锁发生<b>之前</b>就警告</h2>
+
+<pre class="code-bash"><span class="cm"># 内核配置</span>
+CONFIG_PROVE_LOCKING=y
+CONFIG_DEBUG_LOCK_ALLOC=y
+
+<span class="cm"># 锁统计</span>
+cat /proc/lock_stat | head -<span class="num">30</span>
+</pre>
+
+<p>lockdep 会跟踪<b>每把锁的获取顺序</b>形成有向图，发现<b>潜在循环</b>就报警（哪怕实际没死锁）。</p>
+
+<h2 id="bpftrace">15.7 bpftrace — 现代内核观察利器</h2>
+
+<pre class="code-bash"><span class="cm"># 1. 谁在打开文件?</span>
+bpftrace -e <span class="str">'tracepoint:syscalls:sys_enter_openat {
+    printf("%s -> %s\n", comm, str(args->filename));
+}'</span>
+
+<span class="cm"># 2. 哪个进程在产生 OOM?</span>
+bpftrace -e <span class="str">'kprobe:oom_kill_process {
+    printf("OOM kill: %s (pid %d)\n", str(arg1->name), arg1->pid);
+}'</span>
+
+<span class="cm"># 3. block IO 延迟分布</span>
+bpftrace -e <span class="str">'
+tracepoint:block:block_rq_issue { @start[args->dev, args->sector] = nsecs; }
+tracepoint:block:block_rq_complete /@start[args->dev, args->sector]/ {
+    @us = hist((nsecs - @start[args->dev, args->sector]) / 1000);
+    delete(@start[args->dev, args->sector]);
+}'</span>
+
+<span class="cm"># 4. TCP 连接事件</span>
+bpftrace -e <span class="str">'kprobe:tcp_connect {
+    printf("%s tcp_connect\n", comm);
+}'</span>
+</pre>
+
+<h2 id="kdump">15.8 kdump + crash — 事后尸检</h2>
+
+<p>内核 panic 时 <b>kdump</b> 自动捕获完整内存到文件（vmcore），<b>crash</b> 工具像 gdb 一样事后分析：</p>
+
+<pre class="code-bash"><span class="cm"># 1. 安装 + 配置 kdump (Ubuntu)</span>
+sudo apt install kdump-tools linux-crashdump
+<span class="cm"># 重启后 /var/crash 下会有 vmcore</span>
+
+<span class="cm"># 2. 分析</span>
+crash /usr/lib/debug/boot/vmlinux-$(uname -r) /var/crash/.../vmcore
+
+crash> bt          <span class="cm"># 崩溃时的栈</span>
+crash> ps          <span class="cm"># 当时所有进程</span>
+crash> log         <span class="cm"># dmesg</span>
+crash> kmem -i     <span class="cm"># 内存状况</span>
+crash> sym 0xffffffff8...   <span class="cm"># 地址 → 符号</span>
+</pre>
+
+<h2 id="livepatch">15.9 livepatch — 不重启打补丁</h2>
+
+<p>生产环境最怕"打个安全补丁要重启 1000 台机器"。<b>livepatch</b> 通过 ftrace 机制把函数<b>动态替换</b>为新版本：</p>
+
+<pre class="code-c"><span class="cm">/* 写一个 livepatch 模块替换 cmdline_proc_show */</span>
+<span class="kw">#include</span> &lt;linux/livepatch.h&gt;
+
+<span class="kw">static int</span> <span class="fn">my_cmdline_show</span>(<span class="kw">struct</span> seq_file *m, <span class="kw">void</span> *v) {
+    seq_puts(m, <span class="str">"PATCHED\n"</span>);
+    <span class="kw">return</span> <span class="num">0</span>;
+}
+
+<span class="kw">static struct</span> klp_func funcs[] = {
+    { .old_name = <span class="str">"cmdline_proc_show"</span>, .new_func = my_cmdline_show },
+    { }
+};
+<span class="kw">static struct</span> klp_object objs[] = { { .funcs = funcs }, { } };
+<span class="kw">static struct</span> klp_patch patch = { .mod = THIS_MODULE, .objs = objs };
+
+<span class="kw">static int</span> <span class="fn">__init</span> <span class="fn">init</span>(<span class="kw">void</span>) { <span class="kw">return</span> klp_enable_patch(&patch); }
+</pre>
+
+<h2 id="checklist">15.10 调试速查清单</h2>
+
+<div class="callout tip">
+<div class="label">遇到问题先问自己</div>
+<ol>
+<li><b>能否在 QEMU 复现？</b> → 能则 GDB；不能则上生产</li>
+<li><b>是性能问题还是正确性问题？</b></li>
+<li><b>是 CPU/内存/IO/锁哪一类？</b> → 工具不同（perf / KASAN / iostat / lockstat）</li>
+<li><b>是否能扛得起影响？</b> → 重则 ftrace 全开；轻则 bpftrace 探针</li>
+<li><b>有没有崩溃 dump？</b> → 有则先 crash 分析</li>
+</ol>
+</div>
+
+<div class="callout deep">
+<div class="label">恭喜你完成了全部 16 章</div>
+<p>到这里，你已经走完了从 "0 基础" 到 "专家级" 的完整路径。下一步：</p>
+<ul>
+<li>从 <a href="https://kernelnewbies.org">kernelnewbies.org</a> 找一个 first patch</li>
+<li>订阅 <a href="https://lwn.net">LWN.net</a> 跟踪内核演化</li>
+<li>找一个开源项目（Cilium / runc / fuse / KVM 等）深入贡献</li>
+<li>把本指南中的实验全部跑一遍，每个都写一篇博客</li>
+</ul>
+<p><b>"读万行代码，不如调一个 bug"</b> — 祝你 hacking 愉快！🐧</p>
+</div>
+
+
+<footer class="page-footer">
+    <p>← <a href="../14-启动流程深入/index.html">上一章</a> · <a href="../index.html">总目录</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>

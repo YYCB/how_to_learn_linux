@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>11 · 容器内核机制 — Namespaces、Cgroups、OverlayFS — Linux 内核学习指南</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+    <div class="brand">🐧 Linux 内核学习</div>
+    <div class="brand-sub">从 0.11 到 6.x · 专家级路径</div>
+    <nav>
+        <div class="section-title">入门 & 准备</div>
+        <ul>
+            <li><a href="../index.html">🏠 总目录</a></li>
+            <li><a href="../00-学习路线/index.html">00 · 学习路线</a></li>
+            <li><a href="../01-经典版本选择/index.html">01 · 经典版本选择</a></li>
+            <li><a href="../02-环境搭建/index.html">02 · 环境搭建</a></li>
+        </ul>
+        <div class="section-title">核心子系统</div>
+        <ul>
+            <li><a href="../03-进程管理/index.html">03 · 进程管理</a></li>
+            <li><a href="../04-内存管理/index.html">04 · 内存管理</a></li>
+            <li><a href="../05-文件系统/index.html">05 · 文件系统</a></li>
+            <li><a href="../06-系统调用/index.html">06 · 系统调用</a></li>
+            <li><a href="../07-设备驱动/index.html">07 · 设备驱动</a></li>
+            <li><a href="../08-网络子系统/index.html">08 · 网络子系统</a></li>
+            <li><a href="../09-同步机制/index.html">09 · 同步机制</a></li>
+        </ul>
+        <div class="section-title">专家级深入</div>
+        <ul>
+            <li><a href="../10-CFS调度器/index.html">10 · CFS 调度器</a></li>
+            <li><a href="../11-容器与命名空间/index.html" class="active">11 · 容器与命名空间</a></li>
+            <li><a href="../12-eBPF与可观测性/index.html">12 · eBPF 与可观测性</a></li>
+            <li><a href="../13-中断与异常/index.html">13 · 中断与异常</a></li>
+            <li><a href="../14-启动流程深入/index.html">14 · 启动流程深入</a></li>
+            <li><a href="../15-内核调试与性能/index.html">15 · 内核调试与性能</a></li>
+        </ul>
+    </nav>
+</aside>
+
+<main class="content">
+
+<h1><span class="chapter-num">11</span>容器内核机制 — Namespaces、Cgroups、OverlayFS</h1>
+
+
+<p>Docker / Kubernetes 是包装，<b>容器的真正实现完全在 Linux 内核里</b>：8 种命名空间 + cgroups + 联合文件系统。本章揭开"容器"魔术。</p>
+
+<h2 id="anatomy">11.1 容器解剖图</h2>
+<div class="diagram">
+<img src="../assets/diagrams/container-anatomy.svg" alt="容器结构">
+<div class="caption">容器 = Namespaces (隔离视图) + Cgroups (限制资源) + UnionFS (分层镜像)</div>
+</div>
+
+<h2 id="ns">11.2 8 种命名空间</h2>
+
+<table>
+<tr><th>类型</th><th>引入</th><th>隔离什么</th><th>验证</th></tr>
+<tr><td>Mount (mnt)</td><td>2.4.19</td><td>挂载点视图</td><td><code>cat /proc/self/mounts</code></td></tr>
+<tr><td>UTS</td><td>2.6.19</td><td>hostname / domainname</td><td><code>hostname</code></td></tr>
+<tr><td>IPC</td><td>2.6.19</td><td>SysV IPC / POSIX 消息队列</td><td><code>ipcs</code></td></tr>
+<tr><td>PID</td><td>2.6.24</td><td>进程编号空间</td><td>容器内 init = pid 1</td></tr>
+<tr><td>Network (net)</td><td>2.6.29</td><td>网卡/路由/防火墙/socket</td><td><code>ip link</code></td></tr>
+<tr><td>User</td><td>3.8</td><td>UID/GID 映射</td><td><code>id</code> 在容器内 root 实际是宿主 uid 100000</td></tr>
+<tr><td>Cgroup</td><td>4.6</td><td>cgroup 层级视图</td><td><code>cat /proc/self/cgroup</code></td></tr>
+<tr><td>Time</td><td>5.6</td><td>CLOCK_MONOTONIC 偏移</td><td><code>uptime</code></td></tr>
+</table>
+
+<h2 id="clone">11.3 创建命名空间的系统调用</h2>
+
+<pre class="code-c"><span class="cm">/* 1. clone() 创建新进程时同时创建 ns */</span>
+clone(child_fn, stack, 
+      CLONE_NEWPID  |     <span class="cm">// 新 PID ns</span>
+      CLONE_NEWNET  |     <span class="cm">// 新 net ns</span>
+      CLONE_NEWNS   |     <span class="cm">// 新 mount ns</span>
+      CLONE_NEWUTS  |     <span class="cm">// 新 UTS ns</span>
+      CLONE_NEWIPC  |     <span class="cm">// 新 IPC ns</span>
+      CLONE_NEWUSER |     <span class="cm">// 新 user ns</span>
+      SIGCHLD, arg);
+
+<span class="cm">/* 2. unshare() 把当前进程切到新 ns */</span>
+unshare(CLONE_NEWNET);   <span class="cm">// 当前进程从此在独立 net ns</span>
+
+<span class="cm">/* 3. setns() 加入已有 ns (Docker exec 用) */</span>
+<span class="kw">int</span> fd = open(<span class="str">"/proc/1234/ns/net"</span>, O_RDONLY);
+setns(fd, CLONE_NEWNET);
+</pre>
+
+<pre class="code-bash"><span class="cm"># 命令行版本</span>
+unshare --pid --fork --mount-proc /bin/bash    <span class="cm"># 新 PID ns 的 shell</span>
+nsenter -t <span class="num">1234</span> -n ip addr                    <span class="cm"># 进入进程 1234 的 net ns</span>
+
+<span class="cm"># 实际看看自己的所有 ns</span>
+ls -l /proc/self/ns/
+<span class="cm"># lrwxrwxrwx 1 root root 0 cgroup -> 'cgroup:[4026531835]'</span>
+<span class="cm"># lrwxrwxrwx 1 root root 0 ipc    -> 'ipc:[4026531839]'</span>
+<span class="cm"># lrwxrwxrwx 1 root root 0 mnt    -> 'mnt:[4026531840]'</span>
+<span class="cm"># lrwxrwxrwx 1 root root 0 net    -> 'net:[4026531992]'</span>
+<span class="cm"># lrwxrwxrwx 1 root root 0 pid    -> 'pid:[4026531836]'</span>
+<span class="cm"># lrwxrwxrwx 1 root root 0 user   -> 'user:[4026531837]'</span>
+<span class="cm"># lrwxrwxrwx 1 root root 0 uts    -> 'uts:[4026531838]'</span>
+</pre>
+
+<h2 id="pid_ns">11.4 PID 命名空间深入</h2>
+
+<div class="callout deep">
+<div class="label">同一个进程，两个 PID</div>
+<p>容器内 nginx 显示 <code>pid = 1</code>，但宿主机上 <code>ps</code> 看到的可能是 <code>pid = 12345</code>。
+<b>这不是 bug，是 PID ns 设计</b>：每个 PID ns 内进程从 1 开始编号。</p>
+</div>
+
+<pre class="code-c"><span class="kw">struct</span> task_struct {
+    <span class="cm">/* ... */</span>
+    <span class="kw">struct</span> pid *thread_pid;     <span class="cm">// pid 结构</span>
+};
+
+<span class="kw">struct</span> pid {
+    refcount_t count;
+    <span class="kw">unsigned int</span> level;        <span class="cm">// 嵌套层数 (容器内套容器)</span>
+    <span class="kw">struct</span> upid numbers[<span class="num">1</span>];     <span class="cm">// 每层一个 upid</span>
+};
+<span class="kw">struct</span> upid {
+    <span class="kw">int</span> nr;                   <span class="cm">// 在该 ns 内的 pid</span>
+    <span class="kw">struct</span> pid_namespace *ns; <span class="cm">// 所属 ns</span>
+};
+<span class="cm">// → 同一个进程在不同 ns 看到不同 pid</span>
+</pre>
+
+<h2 id="net_ns">11.5 网络命名空间与 veth pair</h2>
+
+<p>每个 net ns 拥有<b>独立的整套网络栈</b>：网卡、路由表、iptables 规则、socket。容器内"看到的"网卡完全独立。</p>
+
+<pre class="code-bash"><span class="cm"># 手工搭建容器网络 (Docker 内部做的事)</span>
+ip netns add c1                              <span class="cm"># 新 net ns</span>
+
+<span class="cm"># 创建 veth pair (像虚拟网线两端)</span>
+ip link add veth0 type veth peer name veth1
+
+<span class="cm"># 把 veth1 塞进 c1 ns</span>
+ip link set veth1 netns c1
+
+<span class="cm"># 配置两端 IP</span>
+ip addr add <span class="num">10.0.0.1/24</span> dev veth0
+ip link set veth0 up
+ip netns exec c1 ip addr add <span class="num">10.0.0.2/24</span> dev veth1
+ip netns exec c1 ip link set veth1 up
+
+<span class="cm"># 测试连通</span>
+ping <span class="num">10.0.0.2</span>           <span class="cm"># 从宿主</span>
+ip netns exec c1 ping <span class="num">10.0.0.1</span>   <span class="cm"># 从容器</span>
+
+<span class="cm"># 接入网桥让多个容器互通 (docker0)</span>
+ip link add br0 type bridge
+ip link set veth0 master br0
+ip link set br0 up
+</pre>
+
+<h2 id="cgroup">11.6 cgroups v2 详解</h2>
+
+<p>cgroups 控制<b>多少</b>资源（v1 旧、v2 新统一）。v2 单一层级树，每个 cgroup 是一个目录：</p>
+
+<pre class="code-bash"><span class="cm"># cgroup v2 挂载点</span>
+mount | grep cgroup2
+<span class="cm"># cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)</span>
+
+<span class="cm"># 创建一个 cgroup</span>
+mkdir /sys/fs/cgroup/my_app
+
+<span class="cm"># 启用控制器</span>
+echo <span class="str">"+cpu +memory +io +pids"</span> > /sys/fs/cgroup/cgroup.subtree_control
+
+<span class="cm"># 加进程进来</span>
+echo $$ > /sys/fs/cgroup/my_app/cgroup.procs
+
+<span class="cm"># 各项限制</span>
+echo <span class="str">"200000 1000000"</span> > /sys/fs/cgroup/my_app/cpu.max     <span class="cm"># 20% CPU</span>
+echo <span class="num">536870912</span>         > /sys/fs/cgroup/my_app/memory.max  <span class="cm"># 512MB</span>
+echo <span class="num">100</span>               > /sys/fs/cgroup/my_app/pids.max
+echo <span class="str">"8:0 rbps=1048576"</span> > /sys/fs/cgroup/my_app/io.max     <span class="cm"># 1MB/s</span>
+
+<span class="cm"># 当前用量</span>
+cat /sys/fs/cgroup/my_app/memory.current
+cat /sys/fs/cgroup/my_app/cpu.stat
+</pre>
+
+<h2 id="overlay">11.7 OverlayFS — 镜像分层的魔法</h2>
+
+<pre class="code-bash"><span class="cm"># 三个目录</span>
+mkdir /tmp/{lower,upper,work,merged}
+echo <span class="str">"base"</span>    > /tmp/lower/file1
+echo <span class="str">"changed"</span> > /tmp/upper/file1   <span class="cm"># 同名覆盖</span>
+echo <span class="str">"only"</span>    > /tmp/upper/file2
+
+<span class="cm"># 挂载 overlay</span>
+mount -t overlay overlay \\
+    -o lowerdir=/tmp/lower,upperdir=/tmp/upper,workdir=/tmp/work \\
+    /tmp/merged
+
+ls /tmp/merged
+<span class="cm"># file1 file2</span>
+cat /tmp/merged/file1
+<span class="cm"># changed   ← upper 覆盖了 lower</span>
+
+<span class="cm"># 在 merged 里写 → 实际写到 upper (Copy-on-Write)</span>
+echo <span class="str">"new"</span> >> /tmp/merged/file1
+cat /tmp/upper/file1    <span class="cm"># changed\nnew</span>
+cat /tmp/lower/file1    <span class="cm"># base (没动!)</span>
+</pre>
+
+<p>Docker 镜像每层就是一个 lowerdir，最顶上的容器读写层是 upperdir。删除文件用 "whiteout" 特殊文件标记。</p>
+
+<h2 id="runc">11.8 一个 75 行的 "mini docker"</h2>
+
+<pre class="code-c"><span class="cm">/* mini_container.c — 演示容器原理的最小实现 */</span>
+<span class="kw">#define</span> _GNU_SOURCE
+<span class="kw">#include</span> &lt;sched.h&gt; <span class="kw">#include</span> &lt;sys/wait.h&gt; <span class="kw">#include</span> &lt;sys/mount.h&gt;
+<span class="kw">#include</span> &lt;sys/utsname.h&gt; <span class="kw">#include</span> &lt;stdio.h&gt; <span class="kw">#include</span> &lt;unistd.h&gt;
+
+<span class="kw">static char</span> stack[<span class="num">1024</span>*<span class="num">1024</span>];
+
+<span class="kw">int</span> <span class="fn">child_main</span>(<span class="kw">void</span> *arg) {
+    <span class="cm">// 1. 改 hostname</span>
+    sethostname(<span class="str">"in-container"</span>, <span class="num">12</span>);
+
+    <span class="cm">// 2. 切根目录 (类似 chroot)</span>
+    chdir(<span class="str">"/rootfs"</span>);
+    chroot(<span class="str">"."</span>);
+
+    <span class="cm">// 3. 挂载新 proc (PID ns 需要)</span>
+    mount(<span class="str">"proc"</span>, <span class="str">"/proc"</span>, <span class="str">"proc"</span>, <span class="num">0</span>, NULL);
+
+    <span class="cm">// 4. 跑 shell</span>
+    <span class="kw">char</span> *argv[] = { <span class="str">"/bin/sh"</span>, NULL };
+    execv(<span class="str">"/bin/sh"</span>, argv);
+    <span class="kw">return</span> <span class="num">1</span>;
+}
+
+<span class="kw">int</span> <span class="fn">main</span>() {
+    <span class="kw">int</span> flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS
+              | CLONE_NEWIPC | CLONE_NEWNET | SIGCHLD;
+    <span class="kw">int</span> pid = clone(child_main, stack + <span class="kw">sizeof</span>(stack), flags, NULL);
+    waitpid(pid, NULL, <span class="num">0</span>);
+    <span class="kw">return</span> <span class="num">0</span>;
+}
+<span class="cm">/* 编译: gcc -o mini mini_container.c</span>
+<span class="cm">   运行 (需 root): sudo ./mini                                 */</span>
+</pre>
+
+<div class="callout tip">
+<div class="label">看懂这个，你就懂了 Docker</div>
+<p>runc (Docker 底层运行时) 比这个复杂 100 倍，但<b>核心机制就是上面 4 步</b>：clone 多个 NS → chroot → 挂载 proc → exec。剩下的是镜像分层 (OverlayFS)、网络配置 (veth)、资源限制 (cgroups)。</p>
+</div>
+
+
+<footer class="page-footer">
+    <p>← <a href="../10-CFS调度器/index.html">上一章</a> · <a href="../index.html">总目录</a> · <a href="../12-eBPF与可观测性/index.html">下一章 →</a></p>
+</footer>
+
+</main>
+</div>
+</body>
+</html>
